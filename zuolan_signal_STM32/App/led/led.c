@@ -3,64 +3,57 @@
 #include "gpio.h"
 #include "main.h"
 
-static task_handle_t s_led_task_handle = INVALID_TASK_HANDLE;
-static uint32_t s_led_blink_period_ms = 500U;
+#define LED_DEFAULT_BLINK_HALF_PERIOD_MS 500U
+
+uint8_t ucLed[LED_COUNT] = {0U};
+static uint8_t s_led_cached_state[LED_COUNT] = {0xFFU};
+static uint16_t s_led_blink_tick_ms = 0U;
+
+static void LED_WriteHardware(uint8_t index, uint8_t state)
+{
+    GPIO_PinState pin_state;
+
+    if (index != 0U)
+    {
+        return;
+    }
+
+    pin_state = (state != 0U) ? GPIO_PIN_SET : GPIO_PIN_RESET;
+    HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, pin_state);
+}
 
 void led_proc(void)
 {
-    HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
+    uint8_t index;
+
+    ++s_led_blink_tick_ms;
+
+    if (s_led_blink_tick_ms >= LED_DEFAULT_BLINK_HALF_PERIOD_MS)
+    {
+        s_led_blink_tick_ms = 0U;
+        ucLed[0] ^= 1U;
+    }
+
+    for (index = 0U; index < LED_COUNT; ++index)
+    {
+        if (ucLed[index] != s_led_cached_state[index])
+        {
+            LED_WriteHardware(index, ucLed[index]);
+            s_led_cached_state[index] = ucLed[index];
+        }
+    }
 }
 
-task_handle_t LED_Init(uint32_t blink_period_ms)
+void LED_Init(void)
 {
-    uint32_t now_tick;
+    uint8_t index;
 
-    if (blink_period_ms != 0U)
+    for (index = 0U; index < LED_COUNT; ++index)
     {
-        s_led_blink_period_ms = blink_period_ms;
+        ucLed[index] = 0U;
+        s_led_cached_state[index] = 0xFFU;
     }
 
-    if (s_led_task_handle != INVALID_TASK_HANDLE)
-    {
-        (void)Scheduler_SetTaskStateByID(s_led_task_handle, true);
-        return s_led_task_handle;
-    }
-
-    now_tick = HAL_GetTick();
-    s_led_task_handle = Scheduler_AddTask(led_proc, s_led_blink_period_ms,
-                                          now_tick, "led");
-
-    return s_led_task_handle;
-}
-
-bool LED_SetEnabled(bool enabled)
-{
-    if (s_led_task_handle == INVALID_TASK_HANDLE)
-    {
-        return false;
-    }
-
-    return Scheduler_SetTaskStateByID(s_led_task_handle, enabled);
-}
-
-bool LED_SetBlinkPeriod(uint32_t blink_period_ms)
-{
-    if ((blink_period_ms == 0U) || (s_led_task_handle == INVALID_TASK_HANDLE))
-    {
-        return false;
-    }
-
-    s_led_blink_period_ms = blink_period_ms;
-
-    if (!Scheduler_SetTaskRateByID(s_led_task_handle, s_led_blink_period_ms))
-    {
-        return false;
-    }
-
-    return Scheduler_ResetTaskTimerByID(s_led_task_handle, HAL_GetTick());
-}
-
-uint32_t LED_GetBlinkPeriod(void)
-{
-    return s_led_blink_period_ms;
+    s_led_blink_tick_ms = 0U;
+    led_proc();
 }

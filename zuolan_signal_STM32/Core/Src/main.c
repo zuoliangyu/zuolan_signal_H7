@@ -100,7 +100,8 @@ int main(void)
   MX_GPIO_Init();
   /* USER CODE BEGIN 2 */
   Scheduler_Init();
-  led_task_handle = LED_Init(500U);
+  LED_Init();
+  led_task_handle = Scheduler_AddTask(led_proc, 1U, HAL_GetTick(), "led");
   (void)led_task_handle;
 
   /* USER CODE END 2 */

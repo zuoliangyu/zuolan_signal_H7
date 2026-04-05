@@ -5,15 +5,13 @@
 extern "C" {
 #endif
 
-#include <stdbool.h>
 #include <stdint.h>
 
-#include "scheduler.h"
+#define LED_COUNT 1U
 
-task_handle_t LED_Init(uint32_t blink_period_ms);
-bool LED_SetEnabled(bool enabled);
-bool LED_SetBlinkPeriod(uint32_t blink_period_ms);
-uint32_t LED_GetBlinkPeriod(void);
+extern uint8_t ucLed[LED_COUNT];
+
+void LED_Init(void);
 void led_proc(void);
 
 #ifdef __cplusplus
