@@ -18,12 +18,15 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "dma.h"
+#include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "led.h"
 #include "scheduler.h"
+#include "uart.h"
 
 /* USER CODE END Includes */
 
@@ -46,6 +49,7 @@
 
 /* USER CODE BEGIN PV */
 static task_handle_t led_task_handle = INVALID_TASK_HANDLE;
+static task_handle_t uart_task_handle = INVALID_TASK_HANDLE;
 
 /* USER CODE END PV */
 
@@ -98,11 +102,17 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
+  MX_USART1_UART_Init();
+  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
   Scheduler_Init();
   LED_Init();
+  UART_Init();
   led_task_handle = Scheduler_AddTask(led_proc, 1U, HAL_GetTick(), "led");
+  uart_task_handle = Scheduler_AddTask(uart_proc, 1U, HAL_GetTick(), "uart");
   (void)led_task_handle;
+  (void)uart_task_handle;
 
   /* USER CODE END 2 */
 

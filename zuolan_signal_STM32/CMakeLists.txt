@@ -46,12 +46,14 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     App/scheduler/scheduler.c
     App/led/led.c
+    App/uart/uart.c
 )
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     App/scheduler
     App/led
+    App/uart
 )
 
 # Add project symbols (macros)

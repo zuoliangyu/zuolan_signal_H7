@@ -74,7 +74,8 @@
 /* #define HAL_SPDIFRX_MODULE_ENABLED   */
 /* #define HAL_SPI_MODULE_ENABLED   */
 /* #define HAL_SWPMI_MODULE_ENABLED   */
-/* #define HAL_UART_MODULE_ENABLED   */
+/* #define HAL_TIM_MODULE_ENABLED   */
+#define HAL_UART_MODULE_ENABLED
 /* #define HAL_USART_MODULE_ENABLED   */
 /* #define HAL_IRDA_MODULE_ENABLED   */
 /* #define HAL_SMARTCARD_MODULE_ENABLED   */
@@ -452,6 +453,10 @@
 #ifdef HAL_SWPMI_MODULE_ENABLED
  #include "stm32h7xx_hal_swpmi.h"
 #endif /* HAL_SWPMI_MODULE_ENABLED */
+
+#ifdef HAL_TIM_MODULE_ENABLED
+ #include "stm32h7xx_hal_tim.h"
+#endif /* HAL_TIM_MODULE_ENABLED */
 
 #ifdef HAL_UART_MODULE_ENABLED
  #include "stm32h7xx_hal_uart.h"
