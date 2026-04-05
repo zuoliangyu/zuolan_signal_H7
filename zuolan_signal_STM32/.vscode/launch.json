@@ -1,0 +1,51 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "OpenOCD CMSIS-DAP 调试(Debug, 4MHz)",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/Debug/zuolan_signal_STM32.elf",
+            "request": "launch",
+            "type": "cortex-debug",
+            "servertype": "openocd",
+            "serverpath": "openocd",
+            "device": "STM32H743VGTx",
+            "interface": "swd",
+            "armToolchainPath": "${env:LOCALAPPDATA}/stm32cube/bundles/gnu-tools-for-stm32/13.3.1+st.9/bin",
+            "gdbPath": "${env:LOCALAPPDATA}/stm32cube/bundles/gnu-tools-for-stm32/13.3.1+st.9/bin/arm-none-eabi-gdb.exe",
+            "configFiles": [
+                "E:/path/c_c++/openocd/share/openocd/scripts/interface/cmsis-dap.cfg",
+                "E:/path/c_c++/openocd/share/openocd/scripts/target/stm32h7x.cfg"
+            ],
+            "openOCDLaunchCommands": [
+                "transport select swd",
+                "adapter speed 4000"
+            ],
+            "runToEntryPoint": "main",
+            "showDevDebugOutput": "none"
+        },
+        {
+            "name": "OpenOCD CMSIS-DAP 调试(Debug, 1MHz 兼容模式)",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/Debug/zuolan_signal_STM32.elf",
+            "request": "launch",
+            "type": "cortex-debug",
+            "servertype": "openocd",
+            "serverpath": "openocd",
+            "device": "STM32H743VGTx",
+            "interface": "swd",
+            "armToolchainPath": "${env:LOCALAPPDATA}/stm32cube/bundles/gnu-tools-for-stm32/13.3.1+st.9/bin",
+            "gdbPath": "${env:LOCALAPPDATA}/stm32cube/bundles/gnu-tools-for-stm32/13.3.1+st.9/bin/arm-none-eabi-gdb.exe",
+            "configFiles": [
+                "E:/path/c_c++/openocd/share/openocd/scripts/interface/cmsis-dap.cfg",
+                "E:/path/c_c++/openocd/share/openocd/scripts/target/stm32h7x.cfg"
+            ],
+            "openOCDLaunchCommands": [
+                "transport select swd",
+                "adapter speed 1000"
+            ],
+            "runToEntryPoint": "main",
+            "showDevDebugOutput": "none"
+        }
+    ]
+}

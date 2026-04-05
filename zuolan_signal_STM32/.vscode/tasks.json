@@ -1,0 +1,57 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "OpenOCD: 烧录 Debug ELF (CMSIS-DAP, 4MHz)",
+            "type": "shell",
+            "command": "openocd",
+            "args": [
+                "-f",
+                "E:/path/c_c++/openocd/share/openocd/scripts/interface/cmsis-dap.cfg",
+                "-f",
+                "E:/path/c_c++/openocd/share/openocd/scripts/target/stm32h7x.cfg",
+                "-c",
+                "transport select swd",
+                "-c",
+                "adapter speed 4000",
+                "-c",
+                "program ${workspaceFolder}/build/Debug/zuolan_signal_STM32.elf verify reset exit"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "OpenOCD: 烧录 Debug ELF (CMSIS-DAP, 1MHz 兼容模式)",
+            "type": "shell",
+            "command": "openocd",
+            "args": [
+                "-f",
+                "E:/path/c_c++/openocd/share/openocd/scripts/interface/cmsis-dap.cfg",
+                "-f",
+                "E:/path/c_c++/openocd/share/openocd/scripts/target/stm32h7x.cfg",
+                "-c",
+                "transport select swd",
+                "-c",
+                "adapter speed 1000",
+                "-c",
+                "program ${workspaceFolder}/build/Debug/zuolan_signal_STM32.elf verify reset exit"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            },
+            "problemMatcher": []
+        }
+    ]
+}
