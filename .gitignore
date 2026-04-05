@@ -1,0 +1,17 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Common temporary files
+*.tmp
+*.temp
+*.log
+*.bak
+
+# Workspace-level generated files
+**/build/
+**/mx.scratch/
+
+# Local test artifacts
+.vscode-test/
