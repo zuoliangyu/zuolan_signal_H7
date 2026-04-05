@@ -1,0 +1,92 @@
+# 工程协作约定
+
+## 默认语言
+
+- 默认使用简体中文
+- 除文件名、命令名、API 名、专有名词外，优先使用中文说明
+
+## 分层结构约定
+
+本仓库后续默认采用按职责分层、按模块分目录的方式组织代码。
+
+### 1. Core
+
+- `Core/Inc`
+- `Core/Src`
+
+用途：
+
+- 仅保留启动、时钟、中断、CubeMX 直接生成的基础工程文件
+- 例如：
+  - `main.c`
+  - `gpio.c`
+  - `stm32h7xx_it.c`
+  - `system_stm32h7xx.c`
+
+约束：
+
+- 不要把业务逻辑、外设流程、状态机、调度器长期堆在 `Core/Src`
+- `main.c` 只作为系统入口和模块装配点，避免写大量具体逻辑
+
+### 2. App
+
+- `App/<module>/<module>.c`
+- `App/<module>/<module>.h`
+
+用途：
+
+- 放应用层模块
+- 放调度器、流程控制、状态机、任务逻辑
+- 放面向工程使用的功能模块
+
+当前及后续推荐：
+
+- `App/scheduler/scheduler.c`
+- `App/scheduler/scheduler.h`
+- `App/led/led.c`
+- `App/led/led.h`
+
+约束：
+
+- 模块目录名与主文件名尽量一致
+- 一个模块一组 `.c/.h`
+- 任务处理函数命名尽量使用 `<module>_proc`
+- 例如：
+  - `led_proc`
+  - `key_proc`
+  - `uart_proc`
+
+### 3. Drivers
+
+- `Drivers/`
+
+用途：
+
+- HAL
+- CMSIS
+- 芯片厂商驱动
+
+约束：
+
+- 默认不直接手改厂商驱动源码
+
+## 命名约定
+
+- 模块文件名优先使用小写英文
+- 模块对外接口优先使用模块名前缀
+- 示例：
+  - `LED_Init`
+  - `LED_SetEnabled`
+  - `Scheduler_Init`
+  - `Scheduler_AddTask`
+
+## 新增代码默认要求
+
+- 新功能优先拆成独立模块，不直接堆进 `main.c`
+- 能抽成 `App/<module>` 的，优先抽模块
+- 文档变更要同步更新到 `docs/`
+
+## 验证约定
+
+- 默认不自动执行重型构建和全量测试
+- 先做轻量检查，再根据需要决定是否运行 build 或烧录验证

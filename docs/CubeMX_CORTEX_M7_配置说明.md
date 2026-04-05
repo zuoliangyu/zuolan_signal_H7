@@ -1,0 +1,440 @@
+# CubeMX 中 CORTEX_M7 配置说明
+
+这份文档专门解释 `STM32CubeMX` 里 `CORTEX_M7` 配置页的常见选项，重点对应你现在看到的这些内容：
+
+- `Speculation default mode`
+- `CPU ICache`
+- `CPU DCache`
+- `MPU Control Mode`
+- `MPU Region x Settings`
+
+这份文档的目标不是把所有寄存器细节都背下来，而是让你知道：
+
+- 每个选项在系统层面到底影响什么
+- 什么时候建议启用
+- 什么时候不要急着启用
+- 它和你后面做 `DMA / RTOS / 信号处理` 的关系是什么
+
+---
+
+## 1. 先给结论
+
+如果你现在还处在工程起步阶段，建议先用下面这套思路：
+
+- `Speculation default mode`：保持 `Enabled`
+- `CPU ICache`：建议尽早 `Enabled`
+- `CPU DCache`：先理解一致性问题，再决定是否启用
+- `MPU`：可以先保留 CubeMX 生成的基础保护模板，不要急着配很多 Region
+
+更具体地说：
+
+1. `I-Cache` 基本属于“收益高、风险低”，建议早点开。
+2. `D-Cache` 不是不能开，而是开了以后你必须开始认真处理 `DMA 一致性`。
+3. `MPU` 的主要价值不是“炫技”，而是给不同内存区设访问属性，尤其是给 `DMA buffer` 单独规划区域。
+4. `多任务` 本身不是最危险的点，真正危险的是 `多任务 + DMA + D-Cache + 大缓冲区`。
+
+---
+
+## 2. 你当前工程里已经是什么状态
+
+从当前工程生成代码看，[main.c](/C:/Users/zuolan/Desktop/zuolan_signal_STM32/zuolan_signal_STM32/Core/Src/main.c) 里已经有一个 `MPU_Config()`：
+
+- 在 `HAL_Init()` 之前执行 `MPU_Config()`
+- 启用了 `Region 0`
+- `BaseAddress = 0x0`
+- `Size = 4GB`
+- `SubRegionDisable = 0x87`
+- `AccessPermission = NO_ACCESS`
+- `InstructionAccess = DISABLE`
+- 最后 `HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT)`
+
+这说明当前工程已经不是“完全没用 MPU”，而是用了 CubeMX 常见的一套默认保护模板。
+
+同时，当前代码里我没有看到：
+
+- `SCB_EnableICache()`
+- `SCB_EnableDCache()`
+
+所以从代码层看：
+
+- `I-Cache` 目前没有显式启用
+- `D-Cache` 目前没有显式启用
+
+这和你截图里的 `CPU ICache = Disabled`、`CPU DCache = Disabled` 是一致的。
+
+---
+
+## 3. Speculation default mode 是什么
+
+### 3.1 它不是 Cache，但和性能有关
+
+`Speculation default mode` 可以理解为 Cortex-M7 的一种“预先探路”行为。CPU 在执行过程中，会提前推测下一步可能访问什么位置，从而减少等待时间。
+
+它和 `ICache / DCache` 不是一回事，但都属于性能相关机制。
+
+### 3.2 一般建议
+
+大多数普通工程里：
+
+- 保持 `Enabled` 即可
+
+原因：
+
+- 默认开启时，性能通常更好
+- 一般不会成为你最先遇到的问题
+- 你后续真正需要重点关注的仍然是 `D-Cache` 和 `DMA` 一致性
+
+### 3.3 什么时候要特别小心
+
+如果以后你做下面这些事情，才需要更谨慎地评估：
+
+- 特殊外部存储器映射
+- 严格受控的存储器访问
+- 某些安全/隔离场景
+- 调试非常诡异的总线访问行为
+
+对你当前这个项目阶段，先不用把精力花在它上面。
+
+---
+
+## 4. CPU ICache 是什么
+
+### 4.1 它缓存的是“指令”
+
+`ICache` 是指令缓存，主要作用是：
+
+- 提高代码执行效率
+- 降低取指等待
+- 提升循环和函数调用的执行速度
+
+### 4.2 它为什么比较安全
+
+`ICache` 和 `DMA` 数据一致性问题关系很小，因为它缓存的是“指令”，不是普通数据。
+
+所以通常：
+
+- 打开 `I-Cache` 的收益明显
+- 风险相对较低
+
+### 4.3 建议
+
+对 `H743` 这类 Cortex-M7：
+
+- 推荐尽早开启 `ICache`
+
+如果你只是写普通固件、跑 RTOS、做算法计算，`ICache` 基本可以看作“应该开”的项。
+
+---
+
+## 5. CPU DCache 是什么
+
+### 5.1 它缓存的是“数据”
+
+`DCache` 是数据缓存。它的作用是减少 CPU 访问内存时的等待，提高数据读写效率。
+
+对于信号处理类工程，它的性能收益可能很明显，因为你会频繁：
+
+- 读写数组
+- 做滤波、FFT、窗口处理
+- 多次访问同一块 buffer
+
+### 5.2 它为什么容易出坑
+
+因为 `DMA` 不一定知道 CPU Cache 里的内容，CPU 也不一定知道 DMA 已经改了内存。
+
+典型问题有两类：
+
+1. 外设 DMA 写内存，CPU 读到旧数据
+   - 例如 ADC DMA 已经把新采样写进 buffer
+   - 但 CPU 还在读 D-Cache 里的旧副本
+
+2. CPU 先改内存，DMA 发出去的是旧数据
+   - 例如 UART/SPI DMA 发发送缓冲
+   - CPU 只改了 Cache
+   - 数据还没写回内存
+
+### 5.3 什么时候建议先不要开
+
+如果你当前阶段还没把这些事情搞清楚，建议先别急着开：
+
+- DMA buffer 放在哪块内存
+- 哪些区域允许 DMA 访问
+- 哪些区域需要 non-cacheable
+- 哪些地方要 `Clean` / `Invalidate`
+
+### 5.4 什么时候可以开
+
+当你准备好以下任一方案时，就可以更稳地开 `D-Cache`：
+
+1. 手动维护 Cache
+   - 发送前 `SCB_CleanDCache_by_Addr()`
+   - 接收后 `SCB_InvalidateDCache_by_Addr()`
+
+2. 用 `MPU` 把 DMA 缓冲区设成非缓存
+   - CPU 普通数据继续享受 Cache
+   - DMA 共享区避免一致性问题
+
+### 5.5 对你当前项目的建议
+
+你后面会做：
+
+- 多任务
+- 信号处理
+- 很可能还会有 ADC / UART / SPI / I2C / TIM / DMA
+
+所以建议是：
+
+- 先开 `I-Cache`
+- `D-Cache` 暂时先不开
+- 等到你开始规划 `DMA buffer`、`RTOS` 任务栈和数据区时，再一起设计
+
+---
+
+## 6. MPU Control Mode 是什么
+
+你截图里这一项对应的是：
+
+- `MPU Control Mode`
+
+当前生成代码里最终启用方式是：
+
+```c
+HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
+```
+
+这表示：
+
+- 启用 MPU
+- 对没有被显式 Region 覆盖的区域，特权访问仍然使用默认内存映射属性
+
+### 6.1 为什么这很常见
+
+这是比较实用的一种启动方式，因为它允许你：
+
+- 用 MPU 对少数关键区域做保护
+- 同时不至于把整个系统都配置得过于复杂
+
+### 6.2 对当前工程意味着什么
+
+你现在的 CubeMX 生成模板主要是在做“基础安全保护”，不是在做“完整的内存策略规划”。
+
+也就是说：
+
+- 它给你搭了一个框架
+- 但还没有帮你做好后面 DMA / DCache / 多任务的完整分区
+
+---
+
+## 7. MPU Region Settings 怎么理解
+
+### 7.1 Region 是什么
+
+`MPU Region` 可以理解为：
+
+- 给一段地址空间定义访问属性
+
+每个 Region 主要描述这些内容：
+
+- 起始地址
+- 区域大小
+- 访问权限
+- 能不能执行
+- 是否 shareable
+- 是否 cacheable
+- 是否 bufferable
+
+### 7.2 你截图里 Region 0 的意义
+
+你当前看到的 `Region 0` 是一套很常见的“背景保护模板”：
+
+- `BaseAddress = 0x0`
+- `Size = 4GB`
+- `NO_ACCESS`
+- `Instruction Access = DISABLE`
+- 然后用 `SubRegionDisable = 0x87` 开出合法窗口
+
+它的核心作用不是给你最终运行策略，而是：
+
+- 先把大范围地址空间默认收紧
+- 再让默认有效区域通过背景映射工作
+
+这类模板的重点是“基础防护”，不是“性能最优”。
+
+### 7.3 以后你真正会用 Region 干什么
+
+对你的应用场景，更实用的 Region 用法通常是：
+
+1. 给 DMA 缓冲区单独划区域
+   - non-cacheable
+   - 避免 D-Cache 一致性问题
+
+2. 给某些内存区设置不可执行
+   - 降低异常执行风险
+
+3. 给不同数据区设置不同属性
+   - 普通变量区
+   - 高速算法区
+   - DMA 共享区
+   - 外设映射区
+
+---
+
+## 8. Shareable / Cacheable / Bufferable 这三个最容易混
+
+这三个在 CubeMX 里最容易把人绕晕，但你先记住工程上的理解就够了。
+
+### 8.1 Cacheable
+
+是否允许被 Cache 缓存。
+
+- `Enable`：CPU 访问快，但要考虑一致性
+- `Disable`：访问慢一点，但行为更直接
+
+### 8.2 Bufferable
+
+是否允许写缓冲。
+
+它影响写操作是否可以先进入缓冲后再提交。
+
+你现在不用过早深入，先知道：
+
+- 它和访问时序有关
+- 对普通 SRAM/DMA 配置时要结合整体内存属性一起看
+
+### 8.3 Shareable
+
+表示这块区域是否被多个访问主体共享。
+
+工程上你可以先这样理解：
+
+- 如果这块区域会被 CPU 和 DMA 共同访问，就要对它特别敏感
+- 它不是“只要 shared 就自动解决一致性”
+- 真正的一致性问题仍然要靠 `MPU 属性规划` 或 `Cache 维护`
+
+---
+
+## 9. 这些配置和后面多任务有什么关系
+
+### 9.1 多任务本身不是核心矛盾
+
+只开 `FreeRTOS` 并不会自动要求你必须马上开 `D-Cache` 或大量改 `MPU`。
+
+### 9.2 真正的复杂点在这里
+
+当你出现下面组合时，复杂度会明显上升：
+
+- 多任务
+- DMA
+- 多块环形缓冲区
+- 算法处理
+- D-Cache
+
+这时你会碰到：
+
+- 哪个任务读哪个缓冲区
+- DMA 在什么时候写
+- CPU 在什么时候读
+- 是否需要 cache clean / invalidate
+- 缓冲区要不要独立放段
+
+所以对你最合理的推进顺序是：
+
+1. 先搞懂 `CORTEX_M7` 页面的含义
+2. 先把 `I-Cache` 策略定下来
+3. 再在第一个 `DMA` 外设接入时规划 `D-Cache + MPU`
+4. 再进入多任务和信号处理模块化
+
+---
+
+## 10. 针对你当前工程的建议配置
+
+如果目的是先把基础工程打稳，建议：
+
+### 当前阶段
+
+- `Speculation default mode = Enabled`
+- `CPU ICache = Enabled`
+- `CPU DCache = Disabled`
+- `MPU = 保留当前基础模板`
+
+### 进入 DMA 阶段后
+
+再决定下面二选一：
+
+1. `D-Cache = Enabled`，同时对 DMA buffer 做 Cache 维护
+2. `D-Cache = Enabled`，并用 `MPU` 给 DMA buffer 配 non-cacheable 区
+
+### 不建议的做法
+
+- 什么都没规划就直接开 `D-Cache`
+- 开了 `D-Cache` 后仍把所有 DMA buffer 当普通全局数组随便放
+- 不看链接脚本、不看 map 文件就猜缓冲区位置
+
+---
+
+## 11. 你可以把它们理解成一个分层模型
+
+为了不混乱，你可以这样记：
+
+### 第一层：性能
+
+- `Speculation`
+- `ICache`
+- `DCache`
+
+### 第二层：访问规则
+
+- `MPU Control`
+- `MPU Region`
+- `Access Permission`
+- `Instruction Access`
+
+### 第三层：工程落地
+
+- 链接脚本
+- 段放置
+- DMA buffer 布局
+- Cache 维护函数
+- RTOS 任务和数据流设计
+
+---
+
+## 12. 一个适合你当前阶段的最小行动方案
+
+你现在不用一次把所有东西都配完，建议按这个顺序走：
+
+1. 先理解当前 CubeMX 页面每个选项的作用
+2. 先只开 `I-Cache`
+3. 保持 `D-Cache` 关闭
+4. 等你开始做第一个 `DMA` 外设时，再单独设计 `MPU + D-Cache`
+5. 做多任务时，把任务栈、消息缓冲、DMA buffer 分开考虑
+
+---
+
+## 13. 对照当前工程代码看哪里
+
+如果你想把 CubeMX 配置和生成代码对起来，优先看这些文件：
+
+- [main.c](/C:/Users/zuolan/Desktop/zuolan_signal_STM32/zuolan_signal_STM32/Core/Src/main.c)
+  - `MPU_Config()`
+  - 后续如果启用 Cache，通常也会在这里看到 `SCB_EnableICache()` / `SCB_EnableDCache()`
+- [zuolan_signal_STM32.ioc](/C:/Users/zuolan/Desktop/zuolan_signal_STM32/zuolan_signal_STM32/zuolan_signal_STM32.ioc)
+  - CubeMX 配置源文件
+- [03_阶段三_内存_Cache_DMA_MPU.md](/C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/STM32H743_信号处理学习路线/03_阶段三_内存_Cache_DMA_MPU.md)
+  - 这一阶段的系统学习路线
+
+---
+
+## 14. 最后一句判断标准
+
+你以后在 `CORTEX_M7` 页面里遇到任何选项，都先问自己这三个问题：
+
+1. 它影响的是性能，还是访问权限，还是一致性？
+2. 它只是 CPU 自己的行为，还是会影响 CPU 与 DMA 的协作？
+3. 我现在这个阶段，是该先开起来，还是该先等内存布局定下来？
+
+如果你愿意，我下一步可以继续给你补第二篇：
+
+- `H743 工程里 I-Cache / D-Cache / MPU 的推荐启用顺序`
+
+那篇会直接按“你现在这个项目该怎么一步一步开”来写，不再停留在概念解释。
