@@ -66,7 +66,7 @@ static const cli_command_t s_cli_commands[] = {
     {"help", "List all commands", CLI_CmdHelp},
     {"echo", "Echo parameters: echo <text>", CLI_CmdEcho},
     {"led", "Control LED: led on/off/toggle/blink", CLI_CmdLed},
-    {"adc", "Read ADC: adc get/raw/mv/avg/stream/help", CLI_CmdAdc},
+    {"adc", "ADC: get/raw/mv/avg/rate/frame/stream/block", CLI_CmdAdc},
     {"dac", "Control DAC: dac get/mode/amp/offset/freq/duty/start/stop", CLI_CmdDac},
 };
 
@@ -484,12 +484,16 @@ static void CLI_CmdDac(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
 
 static void CLI_CmdAdc(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
 {
+    static uint16_t frame_buffer[ADC_APP_DMA_SAMPLES];
+    adc_app_block_t block;
     unsigned long interval_ms;
+    unsigned long sample_rate_hz;
     char *end_ptr;
+    uint32_t frame_seq;
 
     if (argc <= 1U)
     {
-        CLI_WriteLine(huart, "Usage: adc get|raw|mv|avg|stream on [ms]|stream off|stream ?|help");
+        CLI_WriteLine(huart, "Usage: adc get|raw|mv|avg|rate <hz|?>|frame|frame ?|stream on [ms]|stream off|stream ?|block on|off|?|next|help");
         return;
     }
 
@@ -500,24 +504,39 @@ static void CLI_CmdAdc(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
         CLI_WriteLine(huart, "  adc raw             - show latest raw sample");
         CLI_WriteLine(huart, "  adc mv              - show latest sample in mV");
         CLI_WriteLine(huart, "  adc avg             - show averaged raw and mV");
+        CLI_WriteLine(huart, "  adc rate <hz>       - set ADC sample rate from TIM2");
+        CLI_WriteLine(huart, "  adc rate ?          - show current ADC sample rate");
+        CLI_WriteLine(huart, "  adc frame           - dump latest full frame as index,raw,mv");
+        CLI_WriteLine(huart, "  adc frame ?         - show frame size and latest frame seq");
         CLI_WriteLine(huart, "  adc stream on [ms]  - start continuous CSV output: raw,mv");
         CLI_WriteLine(huart, "  adc stream off      - stop continuous output");
         CLI_WriteLine(huart, "  adc stream ?        - show stream state");
+        CLI_WriteLine(huart, "  adc block on        - stream half/full DMA blocks as raw lines");
+        CLI_WriteLine(huart, "  adc block off       - stop block streaming");
+        CLI_WriteLine(huart, "  adc block ?         - show block streaming status");
+        CLI_WriteLine(huart, "  adc next            - dump one queued half/full DMA block");
         return;
     }
 
     if (strcmp(argv[1], "get") == 0)
     {
         (void)my_printf(huart,
-                        "ADC1: state=%s, pin=PA0, channel=16, dma_samples=%u, latest_raw=%u, latest_mv=%u, avg_raw=%u, avg_mv=%u, stream=%s, interval_ms=%u\r\n",
+                        "ADC1: state=%s, pin=PA0, channel=16, rate_hz=%lu, dma_samples=%u, block_samples=%u, latest_raw=%u, latest_mv=%u, avg_raw=%u, avg_mv=%u, frame_seq=%lu, half_events=%lu, full_events=%lu, dropped_blocks=%lu, monitor=%s, interval_ms=%u, block_stream=%s\r\n",
                         (ADC_APP_IsStarted() != 0U) ? "running" : "error",
+                        (unsigned long)ADC_APP_GetSampleRateHz(),
                         (unsigned int)ADC_APP_GetBufferSamples(),
+                        (unsigned int)ADC_APP_GetBlockSamples(),
                         (unsigned int)ADC_APP_GetLatestRaw(),
                         (unsigned int)ADC_APP_GetLatestMv(),
                         (unsigned int)ADC_APP_GetAverageRaw(),
                         (unsigned int)ADC_APP_GetAverageMv(),
+                        (unsigned long)ADC_APP_GetLatestFrameSeq(),
+                        (unsigned long)ADC_APP_GetHalfEventCount(),
+                        (unsigned long)ADC_APP_GetFullEventCount(),
+                        (unsigned long)ADC_APP_GetDroppedBlockCount(),
                         (ADC_APP_GetStreamEnabled() != 0U) ? "on" : "off",
-                        (unsigned int)ADC_APP_GetStreamIntervalMs());
+                        (unsigned int)ADC_APP_GetStreamIntervalMs(),
+                        (ADC_APP_GetBlockStreamEnabled() != 0U) ? "on" : "off");
         return;
     }
 
@@ -538,6 +557,68 @@ static void CLI_CmdAdc(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
         (void)my_printf(huart, "avg_raw=%u, avg_mv=%u\r\n",
                         (unsigned int)ADC_APP_GetAverageRaw(),
                         (unsigned int)ADC_APP_GetAverageMv());
+        return;
+    }
+
+    if (strcmp(argv[1], "rate") == 0)
+    {
+        if ((argc >= 3U) && (strcmp(argv[2], "?") == 0))
+        {
+            (void)my_printf(huart, "rate_hz=%lu\r\n",
+                            (unsigned long)ADC_APP_GetSampleRateHz());
+            return;
+        }
+
+        if (argc < 3U)
+        {
+            CLI_WriteLine(huart, "Usage: adc rate <hz|?>");
+            return;
+        }
+
+        sample_rate_hz = strtoul(argv[2], &end_ptr, 10);
+        if ((*argv[2] == '\0') || (*end_ptr != '\0') || (sample_rate_hz == 0UL))
+        {
+            CLI_WriteLine(huart, "Usage: adc rate <hz|?>");
+            return;
+        }
+
+        if (ADC_APP_SetSampleRateHz((uint32_t)sample_rate_hz) == 0U)
+        {
+            CLI_WriteLine(huart, "Invalid ADC sample rate");
+            return;
+        }
+
+        (void)my_printf(huart, "rate_hz=%lu\r\n",
+                        (unsigned long)ADC_APP_GetSampleRateHz());
+        return;
+    }
+
+    if (strcmp(argv[1], "frame") == 0)
+    {
+        if ((argc >= 3U) && (strcmp(argv[2], "?") == 0))
+        {
+            (void)my_printf(huart, "frame_samples=%u, frame_seq=%lu\r\n",
+                            (unsigned int)ADC_APP_GetBufferSamples(),
+                            (unsigned long)ADC_APP_GetLatestFrameSeq());
+            return;
+        }
+
+        frame_seq = ADC_APP_GetLatestFrameSeq();
+        ADC_APP_CopyLatestFrame(frame_buffer, ADC_APP_DMA_SAMPLES);
+        (void)my_printf(huart, "# frame_seq=%lu, sample_rate_hz=%lu, samples=%u, format=index,raw,mv\r\n",
+                        (unsigned long)frame_seq,
+                        (unsigned long)ADC_APP_GetSampleRateHz(),
+                        (unsigned int)ADC_APP_GetBufferSamples());
+        for (uint32_t i = 0U; i < ADC_APP_DMA_SAMPLES; ++i)
+        {
+            uint16_t raw = frame_buffer[i];
+            uint32_t mv = (((uint32_t)raw * (uint32_t)ADC_APP_REFERENCE_MV) +
+                           ((uint32_t)ADC_APP_MAX_RAW_VALUE / 2U)) /
+                          (uint32_t)ADC_APP_MAX_RAW_VALUE;
+
+            (void)my_printf(huart, "%lu,%u,%lu\r\n", (unsigned long)i,
+                            (unsigned int)raw, (unsigned long)mv);
+        }
         return;
     }
 
@@ -601,7 +682,66 @@ static void CLI_CmdAdc(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
         return;
     }
 
-    CLI_WriteLine(huart, "Usage: adc get|raw|mv|avg|stream on [ms]|stream off|stream ?|help");
+    if (strcmp(argv[1], "block") == 0)
+    {
+        if (argc < 3U)
+        {
+            CLI_WriteLine(huart, "Usage: adc block on|off|?");
+            return;
+        }
+
+        if (strcmp(argv[2], "?") == 0)
+        {
+            (void)my_printf(huart,
+                            "block_stream=%s, block_samples=%u, half_events=%lu, full_events=%lu, dropped_blocks=%lu\r\n",
+                            (ADC_APP_GetBlockStreamEnabled() != 0U) ? "on" : "off",
+                            (unsigned int)ADC_APP_GetBlockSamples(),
+                            (unsigned long)ADC_APP_GetHalfEventCount(),
+                            (unsigned long)ADC_APP_GetFullEventCount(),
+                            (unsigned long)ADC_APP_GetDroppedBlockCount());
+            return;
+        }
+
+        if (strcmp(argv[2], "on") == 0)
+        {
+            ADC_APP_SetBlockStreamEnabled(1U);
+            CLI_WriteLine(huart, "ADC block stream started");
+            return;
+        }
+
+        if (strcmp(argv[2], "off") == 0)
+        {
+            ADC_APP_SetBlockStreamEnabled(0U);
+            CLI_WriteLine(huart, "ADC block stream stopped");
+            return;
+        }
+
+        CLI_WriteLine(huart, "Usage: adc block on|off|?");
+        return;
+    }
+
+    if (strcmp(argv[1], "next") == 0)
+    {
+        if (ADC_APP_PopBlock(&block) == 0U)
+        {
+            CLI_WriteLine(huart, "No ADC block ready");
+            return;
+        }
+
+        (void)my_printf(huart,
+                        "# block_seq=%lu, part=%s, sample_rate_hz=%lu, samples=%u, format=raw\r\n",
+                        (unsigned long)block.seq,
+                        (block.part == ADC_APP_BLOCK_PART_HALF) ? "half" : "full",
+                        (unsigned long)ADC_APP_GetSampleRateHz(),
+                        (unsigned int)ADC_APP_GetBlockSamples());
+        for (uint32_t i = 0U; i < ADC_APP_BLOCK_SAMPLES; ++i)
+        {
+            (void)my_printf(huart, "%u\r\n", (unsigned int)block.samples[i]);
+        }
+        return;
+    }
+
+    CLI_WriteLine(huart, "Usage: adc get|raw|mv|avg|rate <hz|?>|frame|frame ?|stream on [ms]|stream off|stream ?|block on|off|?|next|help");
 }
 
 void CLI_Init(UART_HandleTypeDef *huart)

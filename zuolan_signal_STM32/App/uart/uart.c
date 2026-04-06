@@ -254,13 +254,16 @@ static void UART_PrintBootStatus(void)
                     (unsigned int)DAC_APP_GetDutyPercent(),
                     (unsigned int)DAC_APP_GetCurrentRaw());
     (void)my_printf(&huart1,
-                    "ADC1: state=%s, pin=PA0, channel=16, dma_samples=%u, latest_raw=%u, latest_mv=%u, stream=%s, interval_ms=%u\r\n",
+                    "ADC1: state=%s, pin=PA0, channel=16, rate_hz=%lu, dma_samples=%u, block_samples=%u, latest_raw=%u, latest_mv=%u, monitor=%s, interval_ms=%u, block_stream=%s\r\n",
                     (ADC_APP_IsStarted() != 0U) ? "running" : "error",
+                    (unsigned long)ADC_APP_GetSampleRateHz(),
                     (unsigned int)ADC_APP_GetBufferSamples(),
+                    (unsigned int)ADC_APP_GetBlockSamples(),
                     (unsigned int)ADC_APP_GetLatestRaw(),
                     (unsigned int)ADC_APP_GetLatestMv(),
                     (ADC_APP_GetStreamEnabled() != 0U) ? "on" : "off",
-                    (unsigned int)ADC_APP_GetStreamIntervalMs());
+                    (unsigned int)ADC_APP_GetStreamIntervalMs(),
+                    (ADC_APP_GetBlockStreamEnabled() != 0U) ? "on" : "off");
     (void)my_printf(&huart1, "Commands: help, echo, led, dac, adc\r\n");
     (void)my_printf(&huart1, "\r\n");
 }
