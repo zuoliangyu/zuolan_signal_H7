@@ -174,7 +174,11 @@ led blink 500
 
 ```text
 dac get
+dac dc 1650
 dac set 1650
+dac wave sine 1000
+dac wave tri 1000
+dac wave square 1000
 dac start
 dac stop
 ```
@@ -183,13 +187,21 @@ dac stop
 
 - `dac get`
   - 输出当前运行状态
-  - 输出当前目标电压值 `mv`
-  - 输出当前对应的 `raw`
-- `dac set 1650`
+  - 直流模式下输出当前目标电压值 `mv` 和 `raw`
+  - 波形模式下输出当前波形类型和频率
+- `dac dc 1650`
   - 把目标电压设置为 `1650mV`
   - 内部按固定参考值 `3300mV` 换算到 `12bit raw`
+- `dac set 1650`
+  - `dac dc 1650` 的兼容别名
+- `dac wave sine 1000`
+  - 输出 `1000Hz` 正弦波
+- `dac wave tri 1000`
+  - 输出 `1000Hz` 三角波
+- `dac wave square 1000`
+  - 输出 `1000Hz` 方波
 - `dac start`
-  - 启动 `DAC1_CH1`
+  - 重新启动上一次配置的 DAC 输出模式
 - `dac stop`
   - 停止 `DAC1_CH1`
 
@@ -197,7 +209,8 @@ dac stop
 
 - 当前 CLI 的电压换算固定按 `3300mV` 参考值计算
 - 如果板上实际 `VDDA` 不是严格 `3300mV`，实测输出会有轻微偏差
-- `dac set` 允许范围为 `0..3300`
+- `dac dc` 和 `dac set` 允许范围为 `0..3300`
+- 当前波形输出固定使用 `128` 点波表
 
 ## 6. 启动时 CLI 的表现
 
