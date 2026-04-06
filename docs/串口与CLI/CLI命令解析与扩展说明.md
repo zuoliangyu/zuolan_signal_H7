@@ -168,17 +168,23 @@ led blink 500
 
 功能：
 
-- 读取或控制 `DAC1_CH1` 当前输出状态
+- 读取或控制 `DAC1_CH1` 当前参数和输出状态
 
 支持形式：
 
 ```text
 dac get
-dac dc 1650
-dac set 1650
-dac wave sine 1000
-dac wave tri 1000
-dac wave square 1000
+dac mode dc
+dac mode sine
+dac mode ?
+dac amp 500
+dac amp ?
+dac offset 1650
+dac offset ?
+dac freq 1000
+dac freq ?
+dac duty 50
+dac duty ?
 dac start
 dac stop
 ```
@@ -186,31 +192,41 @@ dac stop
 行为说明：
 
 - `dac get`
-  - 输出当前运行状态
-  - 直流模式下输出当前目标电压值 `mv` 和 `raw`
-  - 波形模式下输出当前波形类型和频率
-- `dac dc 1650`
-  - 把目标电压设置为 `1650mV`
-  - 内部按固定参考值 `3300mV` 换算到 `12bit raw`
-- `dac set 1650`
-  - `dac dc 1650` 的兼容别名
-- `dac wave sine 1000`
-  - 输出 `1000Hz` 正弦波
-- `dac wave tri 1000`
-  - 输出 `1000Hz` 三角波
-- `dac wave square 1000`
-  - 输出 `1000Hz` 方波
+  - 输出当前完整状态和全部参数
+- `dac mode <dc|sine|tri|square>`
+  - 设置当前输出模式
+  - 不会修改其他参数
+- `dac mode ?`
+  - 查询当前模式
+- `dac amp <mv>`
+  - 设置当前振幅
+- `dac amp ?`
+  - 查询当前振幅
+- `dac offset <mv>`
+  - 设置当前偏置
+- `dac offset ?`
+  - 查询当前偏置
+- `dac freq <hz>`
+  - 设置当前频率
+- `dac freq ?`
+  - 查询当前频率
+- `dac duty <0..100>`
+  - 设置当前方波占空比百分比
+- `dac duty ?`
+  - 查询当前方波占空比百分比
 - `dac start`
-  - 重新启动上一次配置的 DAC 输出模式
+  - 按当前保存参数重新启动 DAC 输出
 - `dac stop`
-  - 停止 `DAC1_CH1`
+  - 停止当前 DAC 输出，但保留参数
 
 注意：
 
 - 当前 CLI 的电压换算固定按 `3300mV` 参考值计算
 - 如果板上实际 `VDDA` 不是严格 `3300mV`，实测输出会有轻微偏差
-- `dac dc` 和 `dac set` 允许范围为 `0..3300`
+- `dac amp` 和 `dac offset` 允许范围为 `0..3300`
+- `dac duty` 允许范围为 `0..100`
 - 当前波形输出固定使用 `128` 点波表
+- 建议查询命令统一写成 `dac mode ?` 这种空格分隔形式
 
 ## 6. 启动时 CLI 的表现
 

@@ -30,8 +30,9 @@
 
 - `DAC1_CH1 -> PA4` 的最小静态输出链路已经接通
 - 应用层已新增 `App/dac/dac_app.c/.h`
-- 当前默认上电输出 `12bit raw = 2048`
+- 当前默认上电输出 `offset = 1650mV`
 - 当前已支持 `TIM6 + DAC + DMA` 的规则波形输出
+- 当前已支持通过 CLI 独立设置 `mode / amp / offset / freq / duty`
 - `ADC` 仍处于规划阶段，尚未开始具体实现
 
 这样拆分的原因很直接：

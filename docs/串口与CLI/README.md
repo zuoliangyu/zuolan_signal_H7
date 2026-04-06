@@ -40,7 +40,7 @@
 适合在你需要回答这些问题时阅读：
 
 - `help / echo / led` 是怎么实现的
-- `dac get / dac dc 1650 / dac wave sine 1000` 是怎么实现的
+- `dac get / dac mode ? / dac amp 500` 是怎么实现的
 - `led blink 500` 的参数语义是什么
 - 要增加一个新命令应该改哪里
 
@@ -61,4 +61,4 @@
 - 串口接收使用 `RX DMA + IDLE + HT + TC + RingBuffer`
 - CLI 在 `App/cli`，UART 应用层在 `App/uart`
 - LED 命令支持 `on / off / toggle / blink [interval_ms]`
-- DAC 命令支持 `get / dc <mv> / set <mv> / wave <type> <freq_hz> / start / stop`
+- DAC 命令支持 `get / mode / amp / offset / freq / duty(%) / start / stop`

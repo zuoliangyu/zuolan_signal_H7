@@ -64,7 +64,7 @@ static const cli_command_t s_cli_commands[] = {
     {"help", "List all commands", CLI_CmdHelp},
     {"echo", "Echo parameters: echo <text>", CLI_CmdEcho},
     {"led", "Control LED: led on/off/toggle/blink", CLI_CmdLed},
-    {"dac", "Control DAC: dac get/dc/wave/start/stop", CLI_CmdDac},
+    {"dac", "Control DAC: dac get/mode/amp/offset/freq/duty/start/stop", CLI_CmdDac},
 };
 
 static uint8_t CLI_Tokenize(char *line, char *argv[], uint8_t max_tokens)
@@ -228,40 +228,84 @@ static void CLI_CmdDac(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
 {
     unsigned long value;
     char *end_ptr;
-    dac_app_waveform_t waveform;
+    uint8_t is_query = 0U;
+
+    if ((argc >= 3U) && (strcmp(argv[2], "?") == 0))
+    {
+        is_query = 1U;
+    }
 
     if (argc <= 1U)
     {
-        CLI_WriteLine(huart, "Usage: dac get|dc <mv>|set <mv>|wave <sine|tri|square> <freq_hz>|start|stop");
+        CLI_WriteLine(huart, "Usage: dac get|mode <value|?>|amp <mv|?>|offset <mv|?>|freq <hz|?>|duty <0..100|?>|start|stop");
         return;
     }
 
     if (strcmp(argv[1], "get") == 0)
     {
-        if (DAC_APP_GetWaveform() == DAC_APP_WAVE_NONE)
-        {
-            (void)my_printf(huart, "DAC1_CH1: state=%s, mode=%s, mv=%u, raw=%u, ref_mv=%u\r\n",
-                            (DAC_APP_IsStarted() != 0U) ? "running" : "stopped",
-                            DAC_APP_GetModeString(), (unsigned int)DAC_APP_GetValueMv(),
-                            (unsigned int)DAC_APP_GetValueRaw(),
-                            (unsigned int)DAC_APP_REFERENCE_MV);
-        }
-        else
-        {
-            (void)my_printf(huart, "DAC1_CH1: state=%s, mode=%s, freq_hz=%lu, samples=%u\r\n",
-                            (DAC_APP_IsStarted() != 0U) ? "running" : "stopped",
-                            DAC_APP_GetModeString(),
-                            (unsigned long)DAC_APP_GetWaveFrequencyHz(),
-                            (unsigned int)DAC_APP_WAVE_SAMPLES);
-        }
+        (void)my_printf(huart,
+                        "DAC1_CH1: state=%s, mode=%s, amp_mv=%u, offset_mv=%u, freq_hz=%lu, duty=%u, raw=%u, samples=%u\r\n",
+                        (DAC_APP_IsStarted() != 0U) ? "running" : "stopped",
+                        DAC_APP_GetModeString(), (unsigned int)DAC_APP_GetAmpMv(),
+                        (unsigned int)DAC_APP_GetOffsetMv(),
+                        (unsigned long)DAC_APP_GetFreqHz(),
+                        (unsigned int)DAC_APP_GetDutyPercent(),
+                        (unsigned int)DAC_APP_GetCurrentRaw(),
+                        (unsigned int)DAC_APP_WAVE_SAMPLES);
         return;
     }
 
-    if ((strcmp(argv[1], "dc") == 0) || (strcmp(argv[1], "set") == 0))
+    if (strcmp(argv[1], "mode") == 0)
     {
+        if (is_query != 0U)
+        {
+            (void)my_printf(huart, "mode=%s\r\n", DAC_APP_GetModeString());
+            return;
+        }
+
         if (argc < 3U)
         {
-            CLI_WriteLine(huart, "Usage: dac dc <mv>, mv=0..3300");
+            CLI_WriteLine(huart, "Usage: dac mode <dc|sine|tri|square|?>");
+            return;
+        }
+
+        if (strcmp(argv[2], "dc") == 0)
+        {
+            DAC_APP_SetMode(DAC_APP_MODE_DC);
+        }
+        else if (strcmp(argv[2], "sine") == 0)
+        {
+            DAC_APP_SetMode(DAC_APP_MODE_SINE);
+        }
+        else if ((strcmp(argv[2], "tri") == 0) || (strcmp(argv[2], "triangle") == 0))
+        {
+            DAC_APP_SetMode(DAC_APP_MODE_TRIANGLE);
+        }
+        else if (strcmp(argv[2], "square") == 0)
+        {
+            DAC_APP_SetMode(DAC_APP_MODE_SQUARE);
+        }
+        else
+        {
+            CLI_WriteLine(huart, "Usage: dac mode <dc|sine|tri|square|?>");
+            return;
+        }
+
+        (void)my_printf(huart, "mode=%s\r\n", DAC_APP_GetModeString());
+        return;
+    }
+
+    if (strcmp(argv[1], "amp") == 0)
+    {
+        if (is_query != 0U)
+        {
+            (void)my_printf(huart, "amp_mv=%u\r\n", (unsigned int)DAC_APP_GetAmpMv());
+            return;
+        }
+
+        if (argc < 3U)
+        {
+            CLI_WriteLine(huart, "Usage: dac amp <mv|?>, mv=0..3300");
             return;
         }
 
@@ -269,66 +313,112 @@ static void CLI_CmdDac(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
         if ((*argv[2] == '\0') || (*end_ptr != '\0') ||
             (value > (unsigned long)DAC_APP_REFERENCE_MV))
         {
-            CLI_WriteLine(huart, "Usage: dac dc <mv>, mv=0..3300");
+            CLI_WriteLine(huart, "Usage: dac amp <mv|?>, mv=0..3300");
             return;
         }
 
-        DAC_APP_SetValueMv((uint16_t)value);
-        (void)my_printf(huart, "DAC1_CH1 dc: mv=%u, raw=%u\r\n",
-                        (unsigned int)DAC_APP_GetValueMv(),
-                        (unsigned int)DAC_APP_GetValueRaw());
+        DAC_APP_SetAmpMv((uint16_t)value);
+        (void)my_printf(huart, "amp_mv=%u\r\n", (unsigned int)DAC_APP_GetAmpMv());
         return;
     }
 
-    if (strcmp(argv[1], "wave") == 0)
+    if (strcmp(argv[1], "offset") == 0)
     {
-        if (argc < 4U)
+        if (is_query != 0U)
         {
-            CLI_WriteLine(huart, "Usage: dac wave <sine|tri|square> <freq_hz>");
+            (void)my_printf(huart, "offset_mv=%u\r\n", (unsigned int)DAC_APP_GetOffsetMv());
             return;
         }
 
-        if (strcmp(argv[2], "sine") == 0)
+        if (argc < 3U)
         {
-            waveform = DAC_APP_WAVE_SINE;
-        }
-        else if ((strcmp(argv[2], "tri") == 0) || (strcmp(argv[2], "triangle") == 0))
-        {
-            waveform = DAC_APP_WAVE_TRIANGLE;
-        }
-        else if (strcmp(argv[2], "square") == 0)
-        {
-            waveform = DAC_APP_WAVE_SQUARE;
-        }
-        else
-        {
-            CLI_WriteLine(huart, "Usage: dac wave <sine|tri|square> <freq_hz>");
+            CLI_WriteLine(huart, "Usage: dac offset <mv|?>, mv=0..3300");
             return;
         }
 
-        value = strtoul(argv[3], &end_ptr, 10);
-        if ((*argv[3] == '\0') || (*end_ptr != '\0') || (value == 0UL))
+        value = strtoul(argv[2], &end_ptr, 10);
+        if ((*argv[2] == '\0') || (*end_ptr != '\0') ||
+            (value > (unsigned long)DAC_APP_REFERENCE_MV))
         {
-            CLI_WriteLine(huart, "Usage: dac wave <sine|tri|square> <freq_hz>");
+            CLI_WriteLine(huart, "Usage: dac offset <mv|?>, mv=0..3300");
             return;
         }
 
-        if (DAC_APP_StartWave(waveform, (uint32_t)value) == 0U)
+        DAC_APP_SetOffsetMv((uint16_t)value);
+        (void)my_printf(huart, "offset_mv=%u, raw=%u\r\n",
+                        (unsigned int)DAC_APP_GetOffsetMv(),
+                        (unsigned int)DAC_APP_GetCurrentRaw());
+        return;
+    }
+
+    if (strcmp(argv[1], "freq") == 0)
+    {
+        if (is_query != 0U)
         {
-            CLI_WriteLine(huart, "DAC wave config invalid for current timer clock");
+            (void)my_printf(huart, "freq_hz=%lu\r\n", (unsigned long)DAC_APP_GetFreqHz());
             return;
         }
 
-        (void)my_printf(huart, "DAC1_CH1 wave: mode=%s, freq_hz=%lu, samples=%u\r\n",
-                        DAC_APP_GetModeString(),
-                        (unsigned long)DAC_APP_GetWaveFrequencyHz(),
-                        (unsigned int)DAC_APP_WAVE_SAMPLES);
+        if (argc < 3U)
+        {
+            CLI_WriteLine(huart, "Usage: dac freq <hz|?>");
+            return;
+        }
+
+        value = strtoul(argv[2], &end_ptr, 10);
+        if ((*argv[2] == '\0') || (*end_ptr != '\0') || (value == 0UL))
+        {
+            CLI_WriteLine(huart, "Usage: dac freq <hz|?>");
+            return;
+        }
+
+        if (DAC_APP_SetFreqHz((uint32_t)value) == 0U)
+        {
+            CLI_WriteLine(huart, "Invalid frequency");
+            return;
+        }
+
+        (void)my_printf(huart, "freq_hz=%lu\r\n", (unsigned long)DAC_APP_GetFreqHz());
+        return;
+    }
+
+    if (strcmp(argv[1], "duty") == 0)
+    {
+        if (is_query != 0U)
+        {
+            (void)my_printf(huart, "duty_percent=%u\r\n",
+                            (unsigned int)DAC_APP_GetDutyPercent());
+            return;
+        }
+
+        if (argc < 3U)
+        {
+            CLI_WriteLine(huart, "Usage: dac duty <0..100|?>");
+            return;
+        }
+
+        value = strtoul(argv[2], &end_ptr, 10);
+        if ((*argv[2] == '\0') || (*end_ptr != '\0') || (value > 100UL))
+        {
+            CLI_WriteLine(huart, "Usage: dac duty <0..100|?>");
+            return;
+        }
+
+        DAC_APP_SetDutyPercent((uint8_t)value);
+        (void)my_printf(huart, "duty_percent=%u\r\n",
+                        (unsigned int)DAC_APP_GetDutyPercent());
         return;
     }
 
     if (strcmp(argv[1], "start") == 0)
     {
         DAC_APP_Start();
+        if (DAC_APP_IsStarted() == 0U)
+        {
+            CLI_WriteLine(huart, "DAC1_CH1 start failed with current config");
+            return;
+        }
+
         (void)my_printf(huart, "DAC1_CH1 started: mode=%s\r\n", DAC_APP_GetModeString());
         return;
     }
@@ -340,7 +430,7 @@ static void CLI_CmdDac(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
         return;
     }
 
-    CLI_WriteLine(huart, "Usage: dac get|dc <mv>|set <mv>|wave <sine|tri|square> <freq_hz>|start|stop");
+    CLI_WriteLine(huart, "Usage: dac get|mode <value|?>|amp <mv|?>|offset <mv|?>|freq <hz|?>|duty <0..100|?>|start|stop");
 }
 
 void CLI_Init(UART_HandleTypeDef *huart)

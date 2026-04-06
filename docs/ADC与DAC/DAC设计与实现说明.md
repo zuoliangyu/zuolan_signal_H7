@@ -11,7 +11,7 @@
 - 使用 `DAC1_CH1`
 - 输出引脚为 `PA4`
 - 触发方式为 `TIM6 TRGO`
-- 直流输出由应用层软件设置目标值
+- 直流输出由应用层软件设置 `offset`
 - 波形输出由 `TIM6 + DAC DMA Circular` 驱动
 - 默认上电输出值为 `1650mV`
 
@@ -143,55 +143,77 @@
 当前 `App/dac` 提供的接口如下：
 
 - `DAC_APP_Init()`
-  - 启动 `DAC1_CH1`
-  - 写入默认原始值 `2048`
+  - 初始化默认参数并启动 `DAC1_CH1`
 - `DAC_APP_Start()`
-  - 启动 DAC 输出
+  - 按当前保存参数启动 DAC 输出
 - `DAC_APP_Stop()`
-  - 停止 DAC 输出
-- `DAC_APP_SetValueRaw(uint16_t raw_value)`
-  - 设置 `12bit` 原始输出值
-  - 内部会自动限制到 `0~4095`
-- `DAC_APP_GetValueRaw()`
-  - 获取当前缓存的原始值
-- `DAC_APP_SetValueMv(uint16_t voltage_mv)`
-  - 按固定参考电压 `3300mV` 设置目标电压
-  - 内部自动换算为 `12bit raw`
-- `DAC_APP_GetValueMv()`
-  - 获取当前缓存的目标电压值
+  - 停止当前 DAC 输出，但保留当前参数
+- `DAC_APP_SetMode(dac_app_mode_t mode)`
+  - 设置当前输出模式
+- `DAC_APP_SetAmpMv(uint16_t amp_mv)`
+  - 设置当前振幅
+- `DAC_APP_SetOffsetMv(uint16_t offset_mv)`
+  - 设置当前偏置
+- `DAC_APP_SetFreqHz(uint32_t frequency_hz)`
+  - 设置当前频率
+- `DAC_APP_SetDutyPercent(uint8_t duty_percent)`
+  - 设置当前方波占空比百分比
 - `DAC_APP_IsStarted()`
   - 获取当前 DAC 输出状态
-- `DAC_APP_StartWave(dac_app_waveform_t waveform, uint32_t frequency_hz)`
-  - 启动规则波形输出
-  - 当前支持 `sine / triangle / square`
-- `DAC_APP_GetWaveform()`
-  - 获取当前波形类型
-- `DAC_APP_GetWaveFrequencyHz()`
-  - 获取当前波形频率
 - `DAC_APP_GetModeString()`
   - 获取当前模式字符串
+- `DAC_APP_GetCurrentRaw()`
+  - 获取当前用于输出的原始值基准
 
-原始值和电压关系：
+模式解释：
 
-- `0` -> 约 `0V`
-- `2048` -> 约 `VDDA / 2`
-- `4095` -> 接近 `VDDA`
+- `dc`
+  - 输出固定电压
+  - 实际输出值取 `offset_mv`
+- `sine`
+  - 以 `offset_mv` 为中心输出正弦波
+  - 振幅由 `amp_mv` 决定
+- `tri`
+  - 以 `offset_mv` 为中心输出三角波
+  - 振幅由 `amp_mv` 决定
+- `square`
+  - 以 `offset_mv` 为中心输出方波
+  - 振幅由 `amp_mv` 决定
+  - 占空比由 `duty_percent` 决定
 
 最终输出电压取决于板上的 `VDDA` 实际值。
 
-当前 CLI 口径：
+当前参数模型：
 
-- `dac dc <mv>` 或兼容别名 `dac set <mv>` 中的 `<mv>` 按固定参考值 `3300mV` 换算
-- 例如 `dac dc 1650` 会换算到约 `raw = 2048`
-- 如果板上实际 `VDDA` 不是严格 `3300mV`，则测得的实际电压会有轻微偏差
-- `dac wave sine 1000` 会启动 `1000Hz` 正弦波输出
+- `mode`
+  - `dc / sine / tri / square`
+- `amp_mv`
+  - 当前振幅，单位 `mV`
+- `offset_mv`
+  - 当前偏置，单位 `mV`
+- `freq_hz`
+  - 当前频率，单位 `Hz`
+- `duty_percent`
+  - 当前方波占空比，单位百分比
+
+所有参数都独立保存。
+
+当 DAC 处于运行状态时：
+
+- 修改任一参数都会立即生效
+- 修改一个参数不会重置其他参数
+
+当 DAC 已停止时：
+
+- 可以继续修改参数
+- 新参数会在下次 `dac start` 时统一生效
 
 当前波形实现约定：
 
 - 波形缓冲区长度固定为 `128` 点
 - 波表放在 `.dma_buffer`，由链接脚本映射到 `RAM_D2`
-- 当前波形幅值固定为全幅 `0~3300mV` 对应的 `0~4095`
-- 当前不支持幅值、偏置和占空比单独调节
+- 电压换算固定按参考值 `3300mV` 计算
+- 当 `offset +/- amp` 超出 `0..3300mV` 时，输出会被裁剪到合法范围
 
 ## 6. 影响范围
 
@@ -271,14 +293,14 @@
 - 已完成 `DAC1_CH1 -> PA4` 的最小静态输出实现
 - 已完成 `TIM6` 触发配置
 - 已完成 `DAC DMA Circular` 配置
-- 已支持通过 CLI 设置和读取 DAC 电压
-- 已支持通过 CLI 输出正弦波、三角波、方波
+- 已支持通过 CLI 独立设置模式、振幅、偏置、频率、占空比
+- 已支持通过 CLI 使用 `?` 查询单项参数
 
 ## 11. 建议的下一步
 
 建议下一步按下面顺序继续：
 
 1. 用万用表或示波器验证 `PA4` 电压是否符合预期
-2. 当前已可使用 CLI 命令，例如 `dac dc 1650`
-3. 当前已可使用 `dac wave sine 1000`、`dac wave tri 1000`、`dac wave square 1000`
+2. 当前已可使用 CLI 命令，例如 `dac mode sine`
+3. 当前已可使用 `dac amp 500`、`dac offset 1650`、`dac freq 1000`、`dac duty 50`
 4. 如果后面需要动态改波表，再考虑 DMA 半缓冲/满缓冲回调

@@ -6,6 +6,7 @@
 
 #define DAC_APP_DC_UPDATE_HZ 1000U
 #define DAC_APP_WAVE_HALF_SAMPLES (DAC_APP_WAVE_SAMPLES / 2U)
+#define DAC_APP_WAVE_CENTER_RAW 2048
 
 #if defined(__GNUC__)
 #define DAC_DMA_ALIGN __attribute__((aligned(32)))
@@ -14,6 +15,15 @@
 #define DAC_DMA_ALIGN
 #define DAC_DMA_SECTION
 #endif
+
+typedef struct
+{
+    dac_app_mode_t mode;
+    uint16_t amp_mv;
+    uint16_t offset_mv;
+    uint32_t freq_hz;
+    uint8_t duty_percent;
+} dac_app_config_t;
 
 static const uint16_t s_dac_sine_table[DAC_APP_WAVE_SAMPLES] = {
     2048U, 2148U, 2248U, 2348U, 2447U, 2545U, 2642U, 2737U,
@@ -35,35 +45,30 @@ static const uint16_t s_dac_sine_table[DAC_APP_WAVE_SAMPLES] = {
 };
 
 static uint16_t s_dac_wave_buffer[DAC_APP_WAVE_SAMPLES] DAC_DMA_ALIGN DAC_DMA_SECTION;
-
-static uint16_t s_dac_raw_value = 0U;
+static dac_app_config_t s_dac_cfg = {
+    .mode = DAC_APP_DEFAULT_MODE,
+    .amp_mv = DAC_APP_DEFAULT_AMP_MV,
+    .offset_mv = DAC_APP_DEFAULT_OFFSET_MV,
+    .freq_hz = DAC_APP_DEFAULT_FREQ_HZ,
+    .duty_percent = DAC_APP_DEFAULT_DUTY_PERCENT,
+};
 static uint8_t s_dac_started = 0U;
-static uint16_t s_dac_voltage_mv = 0U;
-static dac_app_waveform_t s_dac_waveform = DAC_APP_WAVE_NONE;
-static uint32_t s_dac_wave_frequency_hz = 0U;
+static uint16_t s_dac_current_raw = 0U;
 
-static uint16_t DAC_APP_ClampRawValue(uint16_t raw_value);
 static uint16_t DAC_APP_ClampVoltageMv(uint16_t voltage_mv);
-static uint16_t DAC_APP_RawToMv(uint16_t raw_value);
+static uint8_t DAC_APP_ClampDutyPercent(uint8_t duty_percent);
 static uint16_t DAC_APP_MvToRaw(uint16_t voltage_mv);
+static uint16_t DAC_APP_ClipMvToRaw(int32_t voltage_mv);
 static void DAC_APP_StopHardware(void);
 static uint32_t DAC_APP_GetTim6ClockHz(void);
+static uint8_t DAC_APP_IsWaveFrequencySupported(uint32_t frequency_hz);
 static uint8_t DAC_APP_ConfigureTim6UpdateHz(uint32_t update_hz, uint32_t *actual_update_hz);
+static void DAC_APP_FillSineBuffer(void);
 static void DAC_APP_FillTriangleBuffer(void);
 static void DAC_APP_FillSquareBuffer(void);
-static void DAC_APP_LoadWaveformBuffer(dac_app_waveform_t waveform);
-static void DAC_APP_StartDcOutput(void);
-static uint8_t DAC_APP_StartWaveOutput(void);
-
-static uint16_t DAC_APP_ClampRawValue(uint16_t raw_value)
-{
-    if (raw_value > DAC_APP_MAX_RAW_VALUE)
-    {
-        return DAC_APP_MAX_RAW_VALUE;
-    }
-
-    return raw_value;
-}
+static void DAC_APP_RegenerateWaveBuffer(void);
+static uint8_t DAC_APP_StartCurrentMode(void);
+static void DAC_APP_ApplyIfStarted(void);
 
 static uint16_t DAC_APP_ClampVoltageMv(uint16_t voltage_mv)
 {
@@ -75,14 +80,14 @@ static uint16_t DAC_APP_ClampVoltageMv(uint16_t voltage_mv)
     return voltage_mv;
 }
 
-static uint16_t DAC_APP_RawToMv(uint16_t raw_value)
+static uint8_t DAC_APP_ClampDutyPercent(uint8_t duty_percent)
 {
-    uint32_t numerator;
+    if (duty_percent > 100U)
+    {
+        return 100U;
+    }
 
-    raw_value = DAC_APP_ClampRawValue(raw_value);
-    numerator = ((uint32_t)raw_value * (uint32_t)DAC_APP_REFERENCE_MV) +
-                ((uint32_t)DAC_APP_MAX_RAW_VALUE / 2U);
-    return (uint16_t)(numerator / (uint32_t)DAC_APP_MAX_RAW_VALUE);
+    return duty_percent;
 }
 
 static uint16_t DAC_APP_MvToRaw(uint16_t voltage_mv)
@@ -93,6 +98,20 @@ static uint16_t DAC_APP_MvToRaw(uint16_t voltage_mv)
     numerator = ((uint32_t)voltage_mv * (uint32_t)DAC_APP_MAX_RAW_VALUE) +
                 ((uint32_t)DAC_APP_REFERENCE_MV / 2U);
     return (uint16_t)(numerator / (uint32_t)DAC_APP_REFERENCE_MV);
+}
+
+static uint16_t DAC_APP_ClipMvToRaw(int32_t voltage_mv)
+{
+    if (voltage_mv < 0)
+    {
+        voltage_mv = 0;
+    }
+    else if (voltage_mv > (int32_t)DAC_APP_REFERENCE_MV)
+    {
+        voltage_mv = (int32_t)DAC_APP_REFERENCE_MV;
+    }
+
+    return DAC_APP_MvToRaw((uint16_t)voltage_mv);
 }
 
 static void DAC_APP_StopHardware(void)
@@ -118,6 +137,49 @@ static uint32_t DAC_APP_GetTim6ClockHz(void)
     }
 
     return pclk1_hz * 2U;
+}
+
+static uint8_t DAC_APP_IsWaveFrequencySupported(uint32_t frequency_hz)
+{
+    uint32_t timer_clk_hz;
+    uint32_t prescaler;
+    uint64_t requested_update_hz;
+    uint64_t ticks_per_update;
+    uint64_t reload;
+
+    if (frequency_hz == 0U)
+    {
+        return 0U;
+    }
+
+    timer_clk_hz = DAC_APP_GetTim6ClockHz();
+    if (timer_clk_hz == 0U)
+    {
+        return 0U;
+    }
+
+    requested_update_hz = (uint64_t)frequency_hz * (uint64_t)DAC_APP_WAVE_SAMPLES;
+    if ((requested_update_hz == 0ULL) || (requested_update_hz > 0xFFFFFFFFULL))
+    {
+        return 0U;
+    }
+
+    ticks_per_update = requested_update_hz * 65536ULL;
+    prescaler = (ticks_per_update == 0ULL) ? 0U : (uint32_t)((uint64_t)timer_clk_hz / ticks_per_update);
+    if (prescaler > 0xFFFFU)
+    {
+        return 0U;
+    }
+
+    reload = ((uint64_t)timer_clk_hz +
+              ((((uint64_t)prescaler + 1ULL) * requested_update_hz) / 2ULL)) /
+             (((uint64_t)prescaler + 1ULL) * requested_update_hz);
+    if ((reload == 0ULL) || (reload > 65536ULL))
+    {
+        return 0U;
+    }
+
+    return 1U;
 }
 
 static uint8_t DAC_APP_ConfigureTim6UpdateHz(uint32_t update_hz, uint32_t *actual_update_hz)
@@ -174,53 +236,79 @@ static uint8_t DAC_APP_ConfigureTim6UpdateHz(uint32_t update_hz, uint32_t *actua
     return 1U;
 }
 
+static void DAC_APP_FillSineBuffer(void)
+{
+    uint32_t index;
+
+    for (index = 0U; index < DAC_APP_WAVE_SAMPLES; ++index)
+    {
+        int32_t centered = (int32_t)s_dac_sine_table[index] - DAC_APP_WAVE_CENTER_RAW;
+        int32_t sample_mv = (int32_t)s_dac_cfg.offset_mv +
+                            ((centered * (int32_t)s_dac_cfg.amp_mv) / DAC_APP_WAVE_CENTER_RAW);
+        s_dac_wave_buffer[index] = DAC_APP_ClipMvToRaw(sample_mv);
+    }
+}
+
 static void DAC_APP_FillTriangleBuffer(void)
 {
     uint32_t index;
 
     for (index = 0U; index < DAC_APP_WAVE_HALF_SAMPLES; ++index)
     {
+        int32_t delta_mv = -(int32_t)s_dac_cfg.amp_mv +
+                           (int32_t)((2U * (uint32_t)s_dac_cfg.amp_mv * index) /
+                                     (DAC_APP_WAVE_HALF_SAMPLES - 1U));
         s_dac_wave_buffer[index] =
-            (uint16_t)((index * (uint32_t)DAC_APP_MAX_RAW_VALUE) / (DAC_APP_WAVE_HALF_SAMPLES - 1U));
+            DAC_APP_ClipMvToRaw((int32_t)s_dac_cfg.offset_mv + delta_mv);
     }
 
     for (index = DAC_APP_WAVE_HALF_SAMPLES; index < DAC_APP_WAVE_SAMPLES; ++index)
     {
         uint32_t mirror_index = index - DAC_APP_WAVE_HALF_SAMPLES;
+        int32_t delta_mv = (int32_t)s_dac_cfg.amp_mv -
+                           (int32_t)((2U * (uint32_t)s_dac_cfg.amp_mv * mirror_index) /
+                                     (DAC_APP_WAVE_HALF_SAMPLES - 1U));
         s_dac_wave_buffer[index] =
-            (uint16_t)(DAC_APP_MAX_RAW_VALUE -
-                       ((mirror_index * (uint32_t)DAC_APP_MAX_RAW_VALUE) /
-                        (DAC_APP_WAVE_HALF_SAMPLES - 1U)));
+            DAC_APP_ClipMvToRaw((int32_t)s_dac_cfg.offset_mv + delta_mv);
     }
 }
 
 static void DAC_APP_FillSquareBuffer(void)
 {
     uint32_t index;
+    uint32_t high_samples;
+    int32_t high_mv;
+    int32_t low_mv;
 
-    for (index = 0U; index < DAC_APP_WAVE_HALF_SAMPLES; ++index)
+    high_samples = ((uint32_t)s_dac_cfg.duty_percent * DAC_APP_WAVE_SAMPLES + 50U) / 100U;
+    if (high_samples > DAC_APP_WAVE_SAMPLES)
     {
-        s_dac_wave_buffer[index] = DAC_APP_MAX_RAW_VALUE;
+        high_samples = DAC_APP_WAVE_SAMPLES;
     }
 
-    for (index = DAC_APP_WAVE_HALF_SAMPLES; index < DAC_APP_WAVE_SAMPLES; ++index)
+    high_mv = (int32_t)s_dac_cfg.offset_mv + (int32_t)s_dac_cfg.amp_mv;
+    low_mv = (int32_t)s_dac_cfg.offset_mv - (int32_t)s_dac_cfg.amp_mv;
+
+    for (index = 0U; index < DAC_APP_WAVE_SAMPLES; ++index)
     {
-        s_dac_wave_buffer[index] = 0U;
+        if (index < high_samples)
+        {
+            s_dac_wave_buffer[index] = DAC_APP_ClipMvToRaw(high_mv);
+        }
+        else
+        {
+            s_dac_wave_buffer[index] = DAC_APP_ClipMvToRaw(low_mv);
+        }
     }
 }
 
-static void DAC_APP_LoadWaveformBuffer(dac_app_waveform_t waveform)
+static void DAC_APP_RegenerateWaveBuffer(void)
 {
-    uint32_t index;
-
-    if (waveform == DAC_APP_WAVE_SINE)
+    if (s_dac_cfg.mode == DAC_APP_MODE_SINE)
     {
-        for (index = 0U; index < DAC_APP_WAVE_SAMPLES; ++index)
-        {
-            s_dac_wave_buffer[index] = s_dac_sine_table[index];
-        }
+        DAC_APP_FillSineBuffer();
     }
-    else if (waveform == DAC_APP_WAVE_TRIANGLE)
+    else if (s_dac_cfg.mode == DAC_APP_MODE_TRIANGLE)
     {
         DAC_APP_FillTriangleBuffer();
     }
@@ -230,53 +318,48 @@ static void DAC_APP_LoadWaveformBuffer(dac_app_waveform_t waveform)
     }
 }
 
-static void DAC_APP_StartDcOutput(void)
-{
-    uint32_t actual_update_hz = 0U;
-
-    DAC_APP_StopHardware();
-
-    if (HAL_DAC_Start(&hdac1, DAC_CHANNEL_1) != HAL_OK)
-    {
-        Error_Handler();
-    }
-
-    if (HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, s_dac_raw_value) != HAL_OK)
-    {
-        Error_Handler();
-    }
-
-    if (DAC_APP_ConfigureTim6UpdateHz(DAC_APP_DC_UPDATE_HZ, &actual_update_hz) == 0U)
-    {
-        Error_Handler();
-    }
-
-    if (HAL_TIM_Base_Start(&htim6) != HAL_OK)
-    {
-        Error_Handler();
-    }
-
-    s_dac_started = 1U;
-}
-
-static uint8_t DAC_APP_StartWaveOutput(void)
+static uint8_t DAC_APP_StartCurrentMode(void)
 {
     uint32_t actual_update_hz = 0U;
     uint64_t requested_update_hz;
 
-    if ((s_dac_waveform == DAC_APP_WAVE_NONE) || (s_dac_wave_frequency_hz == 0U))
+    DAC_APP_StopHardware();
+
+    if (s_dac_cfg.mode == DAC_APP_MODE_DC)
     {
-        return 0U;
+        s_dac_current_raw = DAC_APP_MvToRaw(s_dac_cfg.offset_mv);
+
+        if (HAL_DAC_Start(&hdac1, DAC_CHANNEL_1) != HAL_OK)
+        {
+            Error_Handler();
+        }
+
+        if (HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, s_dac_current_raw) != HAL_OK)
+        {
+            Error_Handler();
+        }
+
+        if (DAC_APP_ConfigureTim6UpdateHz(DAC_APP_DC_UPDATE_HZ, &actual_update_hz) == 0U)
+        {
+            Error_Handler();
+        }
+
+        if (HAL_TIM_Base_Start(&htim6) != HAL_OK)
+        {
+            Error_Handler();
+        }
+
+        s_dac_started = 1U;
+        return 1U;
     }
 
-    requested_update_hz = (uint64_t)s_dac_wave_frequency_hz * (uint64_t)DAC_APP_WAVE_SAMPLES;
+    requested_update_hz = (uint64_t)s_dac_cfg.freq_hz * (uint64_t)DAC_APP_WAVE_SAMPLES;
     if ((requested_update_hz == 0ULL) || (requested_update_hz > 0xFFFFFFFFULL))
     {
         return 0U;
     }
 
-    DAC_APP_LoadWaveformBuffer(s_dac_waveform);
-    DAC_APP_StopHardware();
+    DAC_APP_RegenerateWaveBuffer();
 
     if (DAC_APP_ConfigureTim6UpdateHz((uint32_t)requested_update_hz, &actual_update_hz) == 0U)
     {
@@ -294,26 +377,36 @@ static uint8_t DAC_APP_StartWaveOutput(void)
         Error_Handler();
     }
 
-    s_dac_wave_frequency_hz = (actual_update_hz + (DAC_APP_WAVE_SAMPLES / 2U)) / DAC_APP_WAVE_SAMPLES;
+    s_dac_current_raw = DAC_APP_MvToRaw(s_dac_cfg.offset_mv);
+    s_dac_cfg.freq_hz = (actual_update_hz + (DAC_APP_WAVE_SAMPLES / 2U)) / DAC_APP_WAVE_SAMPLES;
     s_dac_started = 1U;
     return 1U;
 }
 
-void DAC_APP_Start(void)
+static void DAC_APP_ApplyIfStarted(void)
 {
     if (s_dac_started != 0U)
     {
-        return;
+        (void)DAC_APP_StartCurrentMode();
     }
+}
 
-    if (s_dac_waveform != DAC_APP_WAVE_NONE)
-    {
-        (void)DAC_APP_StartWaveOutput();
-    }
-    else
-    {
-        DAC_APP_StartDcOutput();
-    }
+void DAC_APP_Init(void)
+{
+    s_dac_cfg.mode = DAC_APP_DEFAULT_MODE;
+    s_dac_cfg.amp_mv = DAC_APP_DEFAULT_AMP_MV;
+    s_dac_cfg.offset_mv = DAC_APP_DEFAULT_OFFSET_MV;
+    s_dac_cfg.freq_hz = DAC_APP_DEFAULT_FREQ_HZ;
+    s_dac_cfg.duty_percent = DAC_APP_DEFAULT_DUTY_PERCENT;
+    s_dac_started = 0U;
+    s_dac_current_raw = 0U;
+
+    DAC_APP_Start();
+}
+
+void DAC_APP_Start(void)
+{
+    (void)DAC_APP_StartCurrentMode();
 }
 
 void DAC_APP_Stop(void)
@@ -326,68 +419,36 @@ uint8_t DAC_APP_IsStarted(void)
     return s_dac_started;
 }
 
-void DAC_APP_SetValueRaw(uint16_t raw_value)
+void DAC_APP_SetMode(dac_app_mode_t mode)
 {
-    s_dac_raw_value = DAC_APP_ClampRawValue(raw_value);
-    s_dac_voltage_mv = DAC_APP_RawToMv(s_dac_raw_value);
-    s_dac_waveform = DAC_APP_WAVE_NONE;
-    s_dac_wave_frequency_hz = 0U;
-    DAC_APP_StartDcOutput();
-}
-
-uint16_t DAC_APP_GetValueRaw(void)
-{
-    return s_dac_raw_value;
-}
-
-void DAC_APP_SetValueMv(uint16_t voltage_mv)
-{
-    voltage_mv = DAC_APP_ClampVoltageMv(voltage_mv);
-    DAC_APP_SetValueRaw(DAC_APP_MvToRaw(voltage_mv));
-}
-
-uint16_t DAC_APP_GetValueMv(void)
-{
-    return s_dac_voltage_mv;
-}
-
-uint8_t DAC_APP_StartWave(dac_app_waveform_t waveform, uint32_t frequency_hz)
-{
-    if ((waveform != DAC_APP_WAVE_SINE) && (waveform != DAC_APP_WAVE_TRIANGLE) &&
-        (waveform != DAC_APP_WAVE_SQUARE))
+    if ((mode != DAC_APP_MODE_DC) && (mode != DAC_APP_MODE_SINE) &&
+        (mode != DAC_APP_MODE_TRIANGLE) && (mode != DAC_APP_MODE_SQUARE))
     {
-        return 0U;
+        return;
     }
 
-    s_dac_waveform = waveform;
-    s_dac_wave_frequency_hz = frequency_hz;
-
-    return DAC_APP_StartWaveOutput();
+    s_dac_cfg.mode = mode;
+    DAC_APP_ApplyIfStarted();
 }
 
-dac_app_waveform_t DAC_APP_GetWaveform(void)
+dac_app_mode_t DAC_APP_GetMode(void)
 {
-    return s_dac_waveform;
-}
-
-uint32_t DAC_APP_GetWaveFrequencyHz(void)
-{
-    return s_dac_wave_frequency_hz;
+    return s_dac_cfg.mode;
 }
 
 const char *DAC_APP_GetModeString(void)
 {
-    if (s_dac_waveform == DAC_APP_WAVE_SINE)
+    if (s_dac_cfg.mode == DAC_APP_MODE_SINE)
     {
         return "sine";
     }
 
-    if (s_dac_waveform == DAC_APP_WAVE_TRIANGLE)
+    if (s_dac_cfg.mode == DAC_APP_MODE_TRIANGLE)
     {
-        return "triangle";
+        return "tri";
     }
 
-    if (s_dac_waveform == DAC_APP_WAVE_SQUARE)
+    if (s_dac_cfg.mode == DAC_APP_MODE_SQUARE)
     {
         return "square";
     }
@@ -395,14 +456,57 @@ const char *DAC_APP_GetModeString(void)
     return "dc";
 }
 
-void DAC_APP_Init(void)
+void DAC_APP_SetAmpMv(uint16_t amp_mv)
 {
-    s_dac_raw_value = 0U;
-    s_dac_started = 0U;
-    s_dac_voltage_mv = 0U;
-    s_dac_waveform = DAC_APP_WAVE_NONE;
-    s_dac_wave_frequency_hz = 0U;
+    s_dac_cfg.amp_mv = DAC_APP_ClampVoltageMv(amp_mv);
+    DAC_APP_ApplyIfStarted();
+}
 
-    DAC_APP_Start();
-    DAC_APP_SetValueMv(DAC_APP_DEFAULT_MV);
+uint16_t DAC_APP_GetAmpMv(void)
+{
+    return s_dac_cfg.amp_mv;
+}
+
+void DAC_APP_SetOffsetMv(uint16_t offset_mv)
+{
+    s_dac_cfg.offset_mv = DAC_APP_ClampVoltageMv(offset_mv);
+    DAC_APP_ApplyIfStarted();
+}
+
+uint16_t DAC_APP_GetOffsetMv(void)
+{
+    return s_dac_cfg.offset_mv;
+}
+
+uint8_t DAC_APP_SetFreqHz(uint32_t frequency_hz)
+{
+    if (DAC_APP_IsWaveFrequencySupported(frequency_hz) == 0U)
+    {
+        return 0U;
+    }
+
+    s_dac_cfg.freq_hz = frequency_hz;
+    DAC_APP_ApplyIfStarted();
+    return 1U;
+}
+
+uint32_t DAC_APP_GetFreqHz(void)
+{
+    return s_dac_cfg.freq_hz;
+}
+
+void DAC_APP_SetDutyPercent(uint8_t duty_percent)
+{
+    s_dac_cfg.duty_percent = DAC_APP_ClampDutyPercent(duty_percent);
+    DAC_APP_ApplyIfStarted();
+}
+
+uint8_t DAC_APP_GetDutyPercent(void)
+{
+    return s_dac_cfg.duty_percent;
+}
+
+uint16_t DAC_APP_GetCurrentRaw(void)
+{
+    return DAC_APP_MvToRaw(s_dac_cfg.offset_mv);
 }
