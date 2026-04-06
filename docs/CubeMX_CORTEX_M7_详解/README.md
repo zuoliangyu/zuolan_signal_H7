@@ -4,11 +4,12 @@
 
 适合你当前这个阶段的阅读顺序：
 
-1. [01_先建立正确理解.md](C:\Users\zuolan\Desktop\zuolan_signal_STM32\docs\CubeMX_CORTEX_M7_详解\01_先建立正确理解.md)
-2. [02_CubeMX页面逐项解释.md](C:\Users\zuolan\Desktop\zuolan_signal_STM32\docs\CubeMX_CORTEX_M7_详解\02_CubeMX页面逐项解释.md)
-3. [03_结合当前工程看生成代码.md](C:\Users\zuolan\Desktop\zuolan_signal_STM32\docs\CubeMX_CORTEX_M7_详解\03_结合当前工程看生成代码.md)
-4. [04_推荐启用顺序与工程策略.md](C:\Users\zuolan\Desktop\zuolan_signal_STM32\docs\CubeMX_CORTEX_M7_详解\04_推荐启用顺序与工程策略.md)
-5. [05_常见误区与排查.md](C:\Users\zuolan\Desktop\zuolan_signal_STM32\docs\CubeMX_CORTEX_M7_详解\05_常见误区与排查.md)
+1. [00_配置页快速结论与当前工程建议.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/CubeMX_CORTEX_M7_详解/00_配置页快速结论与当前工程建议.md)
+2. [01_先建立正确理解.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/CubeMX_CORTEX_M7_详解/01_先建立正确理解.md)
+3. [02_CubeMX页面逐项解释.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/CubeMX_CORTEX_M7_详解/02_CubeMX页面逐项解释.md)
+4. [03_结合当前工程看生成代码.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/CubeMX_CORTEX_M7_详解/03_结合当前工程看生成代码.md)
+5. [04_推荐启用顺序与工程策略.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/CubeMX_CORTEX_M7_详解/04_推荐启用顺序与工程策略.md)
+6. [05_常见误区与排查.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/CubeMX_CORTEX_M7_详解/05_常见误区与排查.md)
 
 这套文档重点回答五个问题：
 
@@ -20,8 +21,19 @@
 
 配套阅读：
 
-- [CubeMX_CORTEX_M7_配置说明.md](C:\Users\zuolan\Desktop\zuolan_signal_STM32\docs\CubeMX_CORTEX_M7_配置说明.md)
-- [第三阶段：内存、Cache、DMA、MPU](C:\Users\zuolan\Desktop\zuolan_signal_STM32\docs\STM32H743_信号处理学习路线\03_阶段三_内存_Cache_DMA_MPU.md)
+- [第三阶段：内存、Cache、DMA、MPU](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/STM32H743_信号处理学习路线/03_阶段三_内存_Cache_DMA_MPU.md)
+
+## 1. 当前建议
+
+如果你只想先拿到当前工程可执行的结论，而不想一上来读完整套专题，先看：
+
+- [00_配置页快速结论与当前工程建议.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/CubeMX_CORTEX_M7_详解/00_配置页快速结论与当前工程建议.md)
+
+当前工程推荐方向仍然是：
+
+- `I-Cache` 可以优先启用
+- `D-Cache` 要和 `DMA buffer`、`MPU`、链接脚本一起规划
+- 不要只在 `CubeMX` 页面点选，不去看生成代码和内存布局
 
 官方资料入口：
 

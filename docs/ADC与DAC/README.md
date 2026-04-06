@@ -1,88 +1,78 @@
 # ADC 与 DAC 文档索引
 
-本目录用于集中整理当前工程中与 `ADC`、`DAC` 相关的设计、配置、调试和问题记录。
+本目录集中整理当前工程里与 `ADC`、`DAC`、定时器触发、DMA 缓冲和波形联调相关的正式说明文档。
 
-当前工程平台为 `STM32H743`，因此后续方案默认围绕以下特性展开：
+## 1. 建议阅读顺序
 
-- `ADC` 具备较高采样性能，但要优先明确通道与采样触发链路
-- `DAC` 适合做静态模拟输出或结合定时器 + DMA 做简单波形输出
-- 如果使用 `DMA`，必须同时考虑内存可达性与后续 `D-Cache` 一致性
+如果你是第一次接触当前工程，建议按下面顺序阅读：
 
-建议阅读顺序：
+1. [ADC设计与实现说明.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/ADC与DAC/ADC设计与实现说明.md)
+2. [DAC设计与实现说明.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/ADC与DAC/DAC设计与实现说明.md)
+3. 再按需要跳到根目录下的纠错文档
 
-1. `ADC设计与实现说明.md`
-2. `DAC设计与实现说明.md`
-3. 如后续出现明确问题，再补充对应纠错文档
+## 2. 当前工程状态
 
-## 1. 当前规划结论
+截至当前版本，`ADC / DAC` 子系统已经进入“周期采集 + 规则输出”阶段，主要状态如下：
 
-当前仍按“分阶段实现”推进，不直接一次把 `ADC + DAC + DMA + 定时器触发` 全部堆上去。
+- `DAC1_CH1 -> PA4`
+- `TIM6 + DAC + DMA` 用于波形输出
+- `ADC1 -> PA0(INP16)`
+- `TIM2 + ADC + DMA` 用于周期采样
+- `ADC` 已支持半缓冲 / 全缓冲回调、块队列、整帧快照
+- `DAC` 已支持 `dc / sine / tri / square`
 
-推荐阶段如下：
+当前默认对齐关系：
 
-1. `ADC` 基础采样跑通
-2. `DAC` 基础静态输出跑通
-3. `ADC DMA` 环形采样
-4. `DAC + 定时器` 规则更新
-5. 如有需要，再做 `ADC / DAC + DMA + TIM` 的联动扩展
+- `DAC` 默认波形频率：`1kHz`
+- `DAC` 默认波表点数：`256`
+- `DAC` 默认更新频率：`256kHz`
+- `ADC` 默认采样点数：`256`
+- `ADC` 默认采样率：`256kHz`
 
-当前状态：
+也就是：
 
-- `DAC1_CH1 -> PA4` 的最小静态输出链路已经接通
-- 应用层已新增 `App/dac/dac_app.c/.h`
-- 当前默认上电输出 `offset = 1650mV`
-- 当前已支持 `TIM6 + DAC + DMA` 的规则波形输出
-- 当前已支持通过 CLI 独立设置 `mode / amp / offset / freq / duty`
-- `ADC1 -> PA0(INP16)` 已完成第一版实现
-- 应用层已新增 `App/adc/adc_app.c/.h`
-- 当前已支持 `ADC1 + TIM2触发 + DMA Circular` 周期采样
-- 当前已支持通过 CLI 查询 `raw / mv / avg`
-- 当前已支持通过 CLI 开启连续串口 CSV 输出，便于上位机绘图
-- 当前已支持半缓冲/全缓冲块队列与整帧导出
-- 当前默认已按“`DAC 1kHz 波形 + 256点` 对应 `ADC 256kHz 采样 + 256点`”对齐
+- 默认情况下，`ADC frame` 对应 `DAC` 的一个完整周期
 
-这样拆分的原因很直接：
+## 3. 文档分工
 
-- `STM32H743` 外设能力强，但联动链路一多，问题定位会明显变难
-- 当前工程刚把 `UART/CLI` 链路稳定下来，继续保持“先跑通、再扩展”的节奏更稳
+### [ADC设计与实现说明.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/ADC与DAC/ADC设计与实现说明.md)
 
-## 2. 文档分工
+重点说明：
 
-### `ADC设计与实现说明.md`
+- `ADC1` 的 `CubeMX` 配置
+- `TIM2 TRGO` 触发链路
+- `DMA Circular`
+- 半缓冲 / 全缓冲处理
+- `adc` CLI 命令与使用方式
+- 默认 `256kHz / 256点` 的采样组织方式
 
-用于记录：
+### [DAC设计与实现说明.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/ADC与DAC/DAC设计与实现说明.md)
 
-- 当前 `ADC` 的目标用途与现状
-- `CubeMX` 配置与通道分配
-- 采样触发方式
-- DMA / 中断 / 轮询方案
-- 数据处理与上层接口
-- 调试与验证方法
+重点说明：
 
-如本轮调试中遇到的时钟问题，另见：
+- `DAC1_CH1` 的输出链路
+- `TIM6 TRGO` 与 `DMA` 波形更新
+- `dac` CLI 命令与参数语义
+- 波表组织方式与输出频率关系
 
-- `../纠错-ADC时钟配置导致CubeMX生成警告.md`
-- `../纠错-ADC改为TIM2触发后未启动定时器导致无采样.md`
+## 4. 相关问题记录
 
-### `DAC设计与实现说明.md`
+当前和 `ADC / DAC` 直接相关的历史问题，建议从下面几篇开始看：
 
-用于记录：
+- [纠错-ADC时钟配置导致CubeMX生成警告.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/纠错-ADC时钟配置导致CubeMX生成警告.md)
+- [纠错-ADC改为TIM2触发后未启动定时器导致无采样.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/纠错-ADC改为TIM2触发后未启动定时器导致无采样.md)
+- [STM32H7_DMA缓冲区与链接脚本说明.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/STM32H7_DMA缓冲区与链接脚本说明.md)
 
-- 当前 `DAC` 的目标用途
-- `CubeMX` 输出通道配置
-- 触发源与更新方式
-- DMA / 定时器联动方案
-- 输出数据组织方式
-- 调试与验证方法
+## 5. 当前代码落点
 
-## 3. 当前建议的工程组织
-
-后续建议按下面结构落地：
+当前工程中，`ADC / DAC` 相关代码主要分布在：
 
 - `Core/Inc/adc.h`
 - `Core/Src/adc.c`
 - `Core/Inc/dac.h`
 - `Core/Src/dac.c`
+- `Core/Inc/tim.h`
+- `Core/Src/tim.c`
 - `App/adc/adc_app.c`
 - `App/adc/adc_app.h`
 - `App/dac/dac_app.c`
@@ -91,41 +81,8 @@
 职责划分：
 
 - `Core`
-  - 保留 `CubeMX` 生成初始化
+  - 只保留 `CubeMX` 生成初始化和中断入口
 - `App/adc`
-  - 管理采样缓存、采样率配置、半缓冲/全缓冲队列、连续串口输出状态、对外接口
+  - 管理采样率、DMA 缓冲、块队列、整帧快照、CLI 导出
 - `App/dac`
-  - 管理目标输出值、波形缓存、对外接口
-
-## 4. 规划范围
-
-本轮规划覆盖：
-
-- `STM32H743` 上 `ADC` 和 `DAC` 的推荐实现路径
-- 模块分层建议
-- 文档维护约定
-- 关键风险点
-
-本轮规划不直接覆盖：
-
-- 实际引脚和通道最终定版
-- 最终采样率和输出频率定版
-- 波形算法、滤波算法等业务细节
-
-## 5. 风险
-
-当前最容易踩的坑：
-
-- `ADC` 通道与板级引脚实际不一致
-- `ADC/DAC` 加上 `DMA` 后缓冲区放错内存
-- 过早引入定时器触发，导致联调复杂度过高
-- 后续如果开启 `D-Cache`，数据读写出现一致性问题
-
-## 6. 验收标准
-
-后续开始实现时，建议以这些标准验收：
-
-- `ADC` 能稳定读到符合预期变化的原始值
-- `DAC` 能稳定输出静态电压
-- `ADC/DAC` 的应用逻辑不堆在 `Core` 和 `main.c`
-- 文档随配置与实现同步更新
+  - 管理默认参数、波表、输出模式、运行时重配置
