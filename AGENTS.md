@@ -45,6 +45,14 @@
 - `App/scheduler/scheduler.h`
 - `App/led/led.c`
 - `App/led/led.h`
+- `App/uart/uart.c`
+- `App/uart/uart.h`
+- `App/cli/cli.c`
+- `App/cli/cli.h`
+- `App/adc/adc_app.c`
+- `App/adc/adc_app.h`
+- `App/dac/dac_app.c`
+- `App/dac/dac_app.h`
 
 约束：
 
@@ -85,6 +93,24 @@
 - 新功能优先拆成独立模块，不直接堆进 `main.c`
 - 能抽成 `App/<module>` 的，优先抽模块
 - 文档变更要同步更新到 `docs/`
+
+## ADC / DAC 约定
+
+针对 `STM32H743`，后续新增 `ADC / DAC` 功能时默认遵循以下约定：
+
+- `Core` 层只保留 `CubeMX` 生成的 `adc.*`、`dac.*`、相关 `DMA` / `TIM` 初始化
+- 应用层封装放在：
+  - `App/adc/adc_app.c`
+  - `App/adc/adc_app.h`
+  - `App/dac/dac_app.c`
+  - `App/dac/dac_app.h`
+- 不要把采样流程、滤波、波形组织、控制逻辑长期堆在 `main.c` 或 `Core/Src`
+- 如果使用 `DMA`，默认优先考虑缓冲区内存可达性与后续 `D-Cache` 一致性
+- 文档统一维护在：
+  - `docs/ADC与DAC/README.md`
+  - `docs/ADC与DAC/ADC设计与实现说明.md`
+  - `docs/ADC与DAC/DAC设计与实现说明.md`
+- 一旦 `ADC / DAC` 联调过程中出现明确问题，必须同步新增或更新对应纠错文档
 
 ## 问题纠错文档约定
 

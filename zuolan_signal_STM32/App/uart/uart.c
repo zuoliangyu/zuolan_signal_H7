@@ -7,6 +7,7 @@
 #include "main.h"
 
 #include "cli.h"
+#include "dac_app.h"
 #include "led.h"
 
 #define UART_PROC_TX_CHUNK_SIZE 64U
@@ -236,7 +237,8 @@ static void UART_PrintBootStatus(void)
                     "USART1: mode=cli, rx_dma=%s, dma_buf=%u, ring_buf=%u\r\n"
                     "USART2: mode=echo, rx_dma=%s, dma_buf=%u, ring_buf=%u\r\n"
                     "LED0: state=%u, blink=%u, interval_ms=%u, active_level=low\r\n"
-                    "Commands: help, echo, led\r\n"
+                    "DAC1_CH1: state=%s, mv=%u, raw=%u, ref_mv=%u\r\n"
+                    "Commands: help, echo, led, dac\r\n"
                     "\r\n",
                     (s_uart_ports[UART_PORT_1].rx_ready != 0U) ? "ready" : "error",
                     (unsigned int)UART_DMA_RX_BUF_SIZE,
@@ -245,7 +247,11 @@ static void UART_PrintBootStatus(void)
                     (unsigned int)UART_DMA_RX_BUF_SIZE,
                     (unsigned int)UART_RING_BUF_SIZE,
                     (unsigned int)ucLed[0], (unsigned int)LED_GetBlinkEnabled(0U),
-                    (unsigned int)LED_GetBlinkIntervalMs(0U));
+                    (unsigned int)LED_GetBlinkIntervalMs(0U),
+                    (DAC_APP_IsStarted() != 0U) ? "running" : "stopped",
+                    (unsigned int)DAC_APP_GetValueMv(),
+                    (unsigned int)DAC_APP_GetValueRaw(),
+                    (unsigned int)DAC_APP_REFERENCE_MV);
 }
 
 void UART_Init(void)

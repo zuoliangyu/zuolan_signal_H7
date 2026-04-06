@@ -164,6 +164,41 @@ led blink 500
 - `500ms` 表示翻转间隔，不是完整亮灭周期
 - 当前板载 LED 为低电平点亮
 
+### 5.4 dac
+
+功能：
+
+- 读取或控制 `DAC1_CH1` 当前输出状态
+
+支持形式：
+
+```text
+dac get
+dac set 1650
+dac start
+dac stop
+```
+
+行为说明：
+
+- `dac get`
+  - 输出当前运行状态
+  - 输出当前目标电压值 `mv`
+  - 输出当前对应的 `raw`
+- `dac set 1650`
+  - 把目标电压设置为 `1650mV`
+  - 内部按固定参考值 `3300mV` 换算到 `12bit raw`
+- `dac start`
+  - 启动 `DAC1_CH1`
+- `dac stop`
+  - 停止 `DAC1_CH1`
+
+注意：
+
+- 当前 CLI 的电压换算固定按 `3300mV` 参考值计算
+- 如果板上实际 `VDDA` 不是严格 `3300mV`，实测输出会有轻微偏差
+- `dac set` 允许范围为 `0..3300`
+
 ## 6. 启动时 CLI 的表现
 
 当前上电后：
@@ -242,4 +277,3 @@ static void CLI_CmdFoo(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
 2. 增加更清晰的参数校验工具
 3. 如果需要双串口 CLI，再改为多实例上下文
 4. 如果输出量增大，再考虑把 CLI 输出迁到 TX DMA
-

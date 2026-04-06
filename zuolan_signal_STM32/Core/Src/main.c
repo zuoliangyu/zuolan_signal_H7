@@ -18,12 +18,14 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "dac.h"
 #include "dma.h"
 #include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "dac_app.h"
 #include "led.h"
 #include "scheduler.h"
 #include "uart.h"
@@ -105,7 +107,9 @@ int main(void)
   MX_DMA_Init();
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
+  MX_DAC1_Init();
   /* USER CODE BEGIN 2 */
+  DAC_APP_Init();
   Scheduler_Init();
   LED_Init();
   UART_Init();

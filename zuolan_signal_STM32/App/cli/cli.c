@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "dac_app.h"
 #include "led.h"
 #include "uart.h"
 
@@ -57,11 +58,13 @@ void CLI_ShowPrompt(UART_HandleTypeDef *huart)
 static void CLI_CmdHelp(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 static void CLI_CmdEcho(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 static void CLI_CmdLed(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
+static void CLI_CmdDac(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 
 static const cli_command_t s_cli_commands[] = {
     {"help", "List all commands", CLI_CmdHelp},
     {"echo", "Echo parameters: echo <text>", CLI_CmdEcho},
     {"led", "Control LED: led on/off/toggle/blink", CLI_CmdLed},
+    {"dac", "Control DAC: dac get/set/start/stop", CLI_CmdDac},
 };
 
 static uint8_t CLI_Tokenize(char *line, char *argv[], uint8_t max_tokens)
@@ -219,6 +222,67 @@ static void CLI_CmdLed(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
     (void)my_printf(huart, "LED=%u, blink=%u, interval_ms=%u\r\n",
                     (unsigned int)ucLed[0], (unsigned int)LED_GetBlinkEnabled(0U),
                     (unsigned int)LED_GetBlinkIntervalMs(0U));
+}
+
+static void CLI_CmdDac(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
+{
+    unsigned long voltage_mv;
+    char *end_ptr;
+
+    if (argc <= 1U)
+    {
+        CLI_WriteLine(huart, "Usage: dac get|set <mv>|start|stop");
+        return;
+    }
+
+    if (strcmp(argv[1], "get") == 0)
+    {
+        (void)my_printf(huart, "DAC1_CH1: state=%s, mv=%u, raw=%u, ref_mv=%u\r\n",
+                        (DAC_APP_IsStarted() != 0U) ? "running" : "stopped",
+                        (unsigned int)DAC_APP_GetValueMv(),
+                        (unsigned int)DAC_APP_GetValueRaw(),
+                        (unsigned int)DAC_APP_REFERENCE_MV);
+        return;
+    }
+
+    if (strcmp(argv[1], "set") == 0)
+    {
+        if (argc < 3U)
+        {
+            CLI_WriteLine(huart, "Usage: dac set <mv>, mv=0..3300");
+            return;
+        }
+
+        voltage_mv = strtoul(argv[2], &end_ptr, 10);
+        if ((*argv[2] == '\0') || (*end_ptr != '\0') ||
+            (voltage_mv > (unsigned long)DAC_APP_REFERENCE_MV))
+        {
+            CLI_WriteLine(huart, "Usage: dac set <mv>, mv=0..3300");
+            return;
+        }
+
+        DAC_APP_SetValueMv((uint16_t)voltage_mv);
+        (void)my_printf(huart, "DAC1_CH1 set: mv=%u, raw=%u\r\n",
+                        (unsigned int)DAC_APP_GetValueMv(),
+                        (unsigned int)DAC_APP_GetValueRaw());
+        return;
+    }
+
+    if (strcmp(argv[1], "start") == 0)
+    {
+        DAC_APP_Start();
+        CLI_WriteLine(huart, "DAC1_CH1 started");
+        return;
+    }
+
+    if (strcmp(argv[1], "stop") == 0)
+    {
+        DAC_APP_Stop();
+        CLI_WriteLine(huart, "DAC1_CH1 stopped");
+        return;
+    }
+
+    CLI_WriteLine(huart, "Usage: dac get|set <mv>|start|stop");
 }
 
 void CLI_Init(UART_HandleTypeDef *huart)
