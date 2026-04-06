@@ -58,11 +58,11 @@ static uint16_t s_dac_current_raw = 0U;
 static uint16_t DAC_APP_ClampVoltageMv(uint16_t voltage_mv);
 static uint8_t DAC_APP_ClampDutyPercent(uint8_t duty_percent);
 static uint16_t DAC_APP_MvToRaw(uint16_t voltage_mv);
-static uint16_t DAC_APP_ClipMvToRaw(int32_t voltage_mv);
 static void DAC_APP_StopHardware(void);
 static uint32_t DAC_APP_GetTim6ClockHz(void);
 static uint8_t DAC_APP_IsWaveFrequencySupported(uint32_t frequency_hz);
 static uint8_t DAC_APP_ConfigureTim6UpdateHz(uint32_t update_hz, uint32_t *actual_update_hz);
+static uint16_t DAC_APP_GetAmpMaxMvForOffset(uint16_t offset_mv);
 static void DAC_APP_FillSineBuffer(void);
 static void DAC_APP_FillTriangleBuffer(void);
 static void DAC_APP_FillSquareBuffer(void);
@@ -100,20 +100,6 @@ static uint16_t DAC_APP_MvToRaw(uint16_t voltage_mv)
     return (uint16_t)(numerator / (uint32_t)DAC_APP_REFERENCE_MV);
 }
 
-static uint16_t DAC_APP_ClipMvToRaw(int32_t voltage_mv)
-{
-    if (voltage_mv < 0)
-    {
-        voltage_mv = 0;
-    }
-    else if (voltage_mv > (int32_t)DAC_APP_REFERENCE_MV)
-    {
-        voltage_mv = (int32_t)DAC_APP_REFERENCE_MV;
-    }
-
-    return DAC_APP_MvToRaw((uint16_t)voltage_mv);
-}
-
 static void DAC_APP_StopHardware(void)
 {
     (void)HAL_TIM_Base_Stop(&htim6);
@@ -137,6 +123,19 @@ static uint32_t DAC_APP_GetTim6ClockHz(void)
     }
 
     return pclk1_hz * 2U;
+}
+
+static uint16_t DAC_APP_GetAmpMaxMvForOffset(uint16_t offset_mv)
+{
+    uint16_t clamped_offset;
+
+    clamped_offset = DAC_APP_ClampVoltageMv(offset_mv);
+    if (clamped_offset > (DAC_APP_REFERENCE_MV - clamped_offset))
+    {
+        return (uint16_t)(DAC_APP_REFERENCE_MV - clamped_offset);
+    }
+
+    return clamped_offset;
 }
 
 static uint8_t DAC_APP_IsWaveFrequencySupported(uint32_t frequency_hz)
@@ -245,7 +244,7 @@ static void DAC_APP_FillSineBuffer(void)
         int32_t centered = (int32_t)s_dac_sine_table[index] - DAC_APP_WAVE_CENTER_RAW;
         int32_t sample_mv = (int32_t)s_dac_cfg.offset_mv +
                             ((centered * (int32_t)s_dac_cfg.amp_mv) / DAC_APP_WAVE_CENTER_RAW);
-        s_dac_wave_buffer[index] = DAC_APP_ClipMvToRaw(sample_mv);
+        s_dac_wave_buffer[index] = DAC_APP_MvToRaw((uint16_t)sample_mv);
     }
 }
 
@@ -258,8 +257,7 @@ static void DAC_APP_FillTriangleBuffer(void)
         int32_t delta_mv = -(int32_t)s_dac_cfg.amp_mv +
                            (int32_t)((2U * (uint32_t)s_dac_cfg.amp_mv * index) /
                                      (DAC_APP_WAVE_HALF_SAMPLES - 1U));
-        s_dac_wave_buffer[index] =
-            DAC_APP_ClipMvToRaw((int32_t)s_dac_cfg.offset_mv + delta_mv);
+        s_dac_wave_buffer[index] = DAC_APP_MvToRaw((uint16_t)((int32_t)s_dac_cfg.offset_mv + delta_mv));
     }
 
     for (index = DAC_APP_WAVE_HALF_SAMPLES; index < DAC_APP_WAVE_SAMPLES; ++index)
@@ -268,8 +266,7 @@ static void DAC_APP_FillTriangleBuffer(void)
         int32_t delta_mv = (int32_t)s_dac_cfg.amp_mv -
                            (int32_t)((2U * (uint32_t)s_dac_cfg.amp_mv * mirror_index) /
                                      (DAC_APP_WAVE_HALF_SAMPLES - 1U));
-        s_dac_wave_buffer[index] =
-            DAC_APP_ClipMvToRaw((int32_t)s_dac_cfg.offset_mv + delta_mv);
+        s_dac_wave_buffer[index] = DAC_APP_MvToRaw((uint16_t)((int32_t)s_dac_cfg.offset_mv + delta_mv));
     }
 }
 
@@ -293,11 +290,11 @@ static void DAC_APP_FillSquareBuffer(void)
     {
         if (index < high_samples)
         {
-            s_dac_wave_buffer[index] = DAC_APP_ClipMvToRaw(high_mv);
+            s_dac_wave_buffer[index] = DAC_APP_MvToRaw((uint16_t)high_mv);
         }
         else
         {
-            s_dac_wave_buffer[index] = DAC_APP_ClipMvToRaw(low_mv);
+            s_dac_wave_buffer[index] = DAC_APP_MvToRaw((uint16_t)low_mv);
         }
     }
 }
@@ -456,10 +453,16 @@ const char *DAC_APP_GetModeString(void)
     return "dc";
 }
 
-void DAC_APP_SetAmpMv(uint16_t amp_mv)
+uint8_t DAC_APP_SetAmpMv(uint16_t amp_mv)
 {
-    s_dac_cfg.amp_mv = DAC_APP_ClampVoltageMv(amp_mv);
+    if (amp_mv > DAC_APP_GetAmpMaxMvForOffset(s_dac_cfg.offset_mv))
+    {
+        return 0U;
+    }
+
+    s_dac_cfg.amp_mv = amp_mv;
     DAC_APP_ApplyIfStarted();
+    return 1U;
 }
 
 uint16_t DAC_APP_GetAmpMv(void)
@@ -467,15 +470,40 @@ uint16_t DAC_APP_GetAmpMv(void)
     return s_dac_cfg.amp_mv;
 }
 
-void DAC_APP_SetOffsetMv(uint16_t offset_mv)
+uint16_t DAC_APP_GetAmpMaxMv(void)
 {
-    s_dac_cfg.offset_mv = DAC_APP_ClampVoltageMv(offset_mv);
+    return DAC_APP_GetAmpMaxMvForOffset(s_dac_cfg.offset_mv);
+}
+
+uint8_t DAC_APP_SetOffsetMv(uint16_t offset_mv)
+{
+    uint16_t clamped_offset;
+
+    clamped_offset = DAC_APP_ClampVoltageMv(offset_mv);
+    if ((clamped_offset < s_dac_cfg.amp_mv) ||
+        (clamped_offset > (DAC_APP_REFERENCE_MV - s_dac_cfg.amp_mv)))
+    {
+        return 0U;
+    }
+
+    s_dac_cfg.offset_mv = clamped_offset;
     DAC_APP_ApplyIfStarted();
+    return 1U;
 }
 
 uint16_t DAC_APP_GetOffsetMv(void)
 {
     return s_dac_cfg.offset_mv;
+}
+
+uint16_t DAC_APP_GetOffsetMinMv(void)
+{
+    return s_dac_cfg.amp_mv;
+}
+
+uint16_t DAC_APP_GetOffsetMaxMv(void)
+{
+    return (uint16_t)(DAC_APP_REFERENCE_MV - s_dac_cfg.amp_mv);
 }
 
 uint8_t DAC_APP_SetFreqHz(uint32_t frequency_hz)

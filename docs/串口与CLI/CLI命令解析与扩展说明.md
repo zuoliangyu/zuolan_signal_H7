@@ -139,6 +139,7 @@ led off
 led toggle
 led blink
 led blink 500
+led help
 ```
 
 行为说明：
@@ -158,6 +159,8 @@ led blink 500
 - `led blink 500`
   - 设置翻转间隔为 `500ms`
   - 重新启用自动闪烁
+- `led help`
+  - 输出 LED 子命令说明
 
 注意：
 
@@ -185,6 +188,7 @@ dac freq 1000
 dac freq ?
 dac duty 50
 dac duty ?
+dac help
 dac start
 dac stop
 ```
@@ -214,6 +218,8 @@ dac stop
   - 设置当前方波占空比百分比
 - `dac duty ?`
   - 查询当前方波占空比百分比
+- `dac help`
+  - 输出 DAC 子命令说明和参数说明
 - `dac start`
   - 按当前保存参数重新启动 DAC 输出
 - `dac stop`
@@ -224,6 +230,8 @@ dac stop
 - 当前 CLI 的电压换算固定按 `3300mV` 参考值计算
 - 如果板上实际 `VDDA` 不是严格 `3300mV`，实测输出会有轻微偏差
 - `dac amp` 和 `dac offset` 允许范围为 `0..3300`
+- `dac amp` 还会受当前 `offset` 约束，超出时会被拒绝并提示合法范围
+- `dac offset` 还会受当前 `amp` 约束，超出时会被拒绝并提示合法范围
 - `dac duty` 允许范围为 `0..100`
 - 当前波形输出固定使用 `128` 点波表
 - 建议查询命令统一写成 `dac mode ?` 这种空格分隔形式

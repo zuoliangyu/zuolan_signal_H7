@@ -61,4 +61,4 @@
 - 串口接收使用 `RX DMA + IDLE + HT + TC + RingBuffer`
 - CLI 在 `App/cli`，UART 应用层在 `App/uart`
 - LED 命令支持 `on / off / toggle / blink [interval_ms]`
-- DAC 命令支持 `get / mode / amp / offset / freq / duty(%) / start / stop`
+- DAC 命令支持 `get / mode / amp / offset / freq / duty(%) / help / start / stop`

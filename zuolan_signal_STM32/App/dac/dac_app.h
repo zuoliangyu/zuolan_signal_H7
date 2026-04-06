@@ -34,11 +34,14 @@ void DAC_APP_SetMode(dac_app_mode_t mode);
 dac_app_mode_t DAC_APP_GetMode(void);
 const char *DAC_APP_GetModeString(void);
 
-void DAC_APP_SetAmpMv(uint16_t amp_mv);
+uint8_t DAC_APP_SetAmpMv(uint16_t amp_mv);
 uint16_t DAC_APP_GetAmpMv(void);
+uint16_t DAC_APP_GetAmpMaxMv(void);
 
-void DAC_APP_SetOffsetMv(uint16_t offset_mv);
+uint8_t DAC_APP_SetOffsetMv(uint16_t offset_mv);
 uint16_t DAC_APP_GetOffsetMv(void);
+uint16_t DAC_APP_GetOffsetMinMv(void);
+uint16_t DAC_APP_GetOffsetMaxMv(void);
 
 uint8_t DAC_APP_SetFreqHz(uint32_t frequency_hz);
 uint32_t DAC_APP_GetFreqHz(void);

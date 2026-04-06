@@ -7,7 +7,7 @@ extern "C" {
 
 #include "usart.h"
 
-#define UART_PRINTF_BUF_SIZE 128U
+#define UART_PRINTF_BUF_SIZE 256U
 #define UART_DMA_RX_BUF_SIZE 256U
 #define UART_RING_BUF_SIZE   1024U
 

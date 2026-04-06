@@ -231,30 +231,29 @@ static HAL_StatusTypeDef UART_StartReceiveDMA(uart_app_port_t *port)
 
 static void UART_PrintBootStatus(void)
 {
-    (void)my_printf(&huart1,
-                    "\r\n"
-                    "System boot summary\r\n"
-                    "USART1: mode=cli, rx_dma=%s, dma_buf=%u, ring_buf=%u\r\n"
-                    "USART2: mode=echo, rx_dma=%s, dma_buf=%u, ring_buf=%u\r\n"
-                    "LED0: state=%u, blink=%u, interval_ms=%u, active_level=low\r\n"
-                    "DAC1_CH1: state=%s, mode=%s, amp_mv=%u, offset_mv=%u, freq_hz=%lu, duty_percent=%u, raw=%u\r\n"
-                    "Commands: help, echo, led, dac\r\n"
-                    "\r\n",
+    (void)my_printf(&huart1, "\r\n");
+    (void)my_printf(&huart1, "System boot summary\r\n");
+    (void)my_printf(&huart1, "USART1: mode=cli, rx_dma=%s, dma_buf=%u, ring_buf=%u\r\n",
                     (s_uart_ports[UART_PORT_1].rx_ready != 0U) ? "ready" : "error",
                     (unsigned int)UART_DMA_RX_BUF_SIZE,
-                    (unsigned int)UART_RING_BUF_SIZE,
+                    (unsigned int)UART_RING_BUF_SIZE);
+    (void)my_printf(&huart1, "USART2: mode=echo, rx_dma=%s, dma_buf=%u, ring_buf=%u\r\n",
                     (s_uart_ports[UART_PORT_2].rx_ready != 0U) ? "ready" : "error",
                     (unsigned int)UART_DMA_RX_BUF_SIZE,
-                    (unsigned int)UART_RING_BUF_SIZE,
+                    (unsigned int)UART_RING_BUF_SIZE);
+    (void)my_printf(&huart1, "LED0: state=%u, blink=%u, interval_ms=%u, active_level=low\r\n",
                     (unsigned int)ucLed[0], (unsigned int)LED_GetBlinkEnabled(0U),
-                    (unsigned int)LED_GetBlinkIntervalMs(0U),
+                    (unsigned int)LED_GetBlinkIntervalMs(0U));
+    (void)my_printf(&huart1,
+                    "DAC1_CH1: state=%s, mode=%s, amp_mv=%u, offset_mv=%u, freq_hz=%lu, duty_percent=%u, raw=%u\r\n",
                     (DAC_APP_IsStarted() != 0U) ? "running" : "stopped",
-                    DAC_APP_GetModeString(),
-                    (unsigned int)DAC_APP_GetAmpMv(),
+                    DAC_APP_GetModeString(), (unsigned int)DAC_APP_GetAmpMv(),
                     (unsigned int)DAC_APP_GetOffsetMv(),
                     (unsigned long)DAC_APP_GetFreqHz(),
                     (unsigned int)DAC_APP_GetDutyPercent(),
                     (unsigned int)DAC_APP_GetCurrentRaw());
+    (void)my_printf(&huart1, "Commands: help, echo, led, dac\r\n");
+    (void)my_printf(&huart1, "\r\n");
 }
 
 void UART_Init(void)

@@ -181,6 +181,17 @@ static void CLI_CmdLed(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
         return;
     }
 
+    if (strcmp(argv[1], "help") == 0)
+    {
+        CLI_WriteLine(huart, "LED commands:");
+        CLI_WriteLine(huart, "  led on           - turn LED on and disable blink");
+        CLI_WriteLine(huart, "  led off          - turn LED off and disable blink");
+        CLI_WriteLine(huart, "  led toggle       - toggle LED once and disable blink");
+        CLI_WriteLine(huart, "  led blink        - enable blink with current interval");
+        CLI_WriteLine(huart, "  led blink <ms>   - set blink toggle interval in ms");
+        return;
+    }
+
     if (strcmp(argv[1], "on") == 0)
     {
         LED_SetBlinkEnabled(0U, 0U);
@@ -238,6 +249,24 @@ static void CLI_CmdDac(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
     if (argc <= 1U)
     {
         CLI_WriteLine(huart, "Usage: dac get|mode <value|?>|amp <mv|?>|offset <mv|?>|freq <hz|?>|duty <0..100|?>|start|stop");
+        return;
+    }
+
+    if (strcmp(argv[1], "help") == 0)
+    {
+        CLI_WriteLine(huart, "DAC commands:");
+        CLI_WriteLine(huart, "  dac get          - show full DAC state");
+        CLI_WriteLine(huart, "  dac mode <...>   - set mode: dc/sine/tri/square");
+        CLI_WriteLine(huart, "  dac mode ?       - show current mode");
+        CLI_WriteLine(huart, "  dac amp <mv>     - set waveform amplitude");
+        CLI_WriteLine(huart, "  dac amp ?        - show current amplitude");
+        CLI_WriteLine(huart, "  dac offset <mv>  - set DC level / waveform center");
+        CLI_WriteLine(huart, "  dac offset ?     - show current offset");
+        CLI_WriteLine(huart, "  dac freq <hz>    - set waveform frequency");
+        CLI_WriteLine(huart, "  dac freq ?       - show current frequency");
+        CLI_WriteLine(huart, "  dac duty <0..100>- set square-wave duty percent");
+        CLI_WriteLine(huart, "  dac duty ?       - show square-wave duty percent");
+        CLI_WriteLine(huart, "  dac start/stop   - start or stop output");
         return;
     }
 
@@ -317,7 +346,15 @@ static void CLI_CmdDac(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
             return;
         }
 
-        DAC_APP_SetAmpMv((uint16_t)value);
+        if (DAC_APP_SetAmpMv((uint16_t)value) == 0U)
+        {
+            (void)my_printf(huart,
+                            "amp out of range: requested=%lu, valid=0..%u, current_offset_mv=%u\r\n",
+                            value, (unsigned int)DAC_APP_GetAmpMaxMv(),
+                            (unsigned int)DAC_APP_GetOffsetMv());
+            return;
+        }
+
         (void)my_printf(huart, "amp_mv=%u\r\n", (unsigned int)DAC_APP_GetAmpMv());
         return;
     }
@@ -344,7 +381,16 @@ static void CLI_CmdDac(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
             return;
         }
 
-        DAC_APP_SetOffsetMv((uint16_t)value);
+        if (DAC_APP_SetOffsetMv((uint16_t)value) == 0U)
+        {
+            (void)my_printf(huart,
+                            "offset out of range: requested=%lu, valid=%u..%u, current_amp_mv=%u\r\n",
+                            value, (unsigned int)DAC_APP_GetOffsetMinMv(),
+                            (unsigned int)DAC_APP_GetOffsetMaxMv(),
+                            (unsigned int)DAC_APP_GetAmpMv());
+            return;
+        }
+
         (void)my_printf(huart, "offset_mv=%u, raw=%u\r\n",
                         (unsigned int)DAC_APP_GetOffsetMv(),
                         (unsigned int)DAC_APP_GetCurrentRaw());

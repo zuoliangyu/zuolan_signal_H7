@@ -148,7 +148,8 @@ System boot summary
 USART1: mode=cli, rx_dma=ready, dma_buf=256, ring_buf=1024
 USART2: mode=echo, rx_dma=ready, dma_buf=256, ring_buf=1024
 LED0: state=0, blink=1, interval_ms=500, active_level=low
-Commands: help, echo, led
+DAC1_CH1: state=running, mode=dc, amp_mv=500, offset_mv=1650, freq_hz=1000, duty_percent=50, raw=2048
+Commands: help, echo, led, dac
 
 >
 ```
@@ -159,6 +160,7 @@ Commands: help, echo, led
 - `state` 表示 LED 当前逻辑状态
 - `blink` 表示是否允许自动闪烁
 - `interval_ms` 表示 LED 翻转间隔，不是完整亮灭周期
+- 启动摘要按多次逐行发送，避免单次 `printf` 缓冲区截断后把提示符 `> ` 挤到半截状态行后面
 
 ### 5.2 两路串口的职责
 
@@ -282,6 +284,11 @@ LED 的逻辑重点如下：
 - 高频日志
 - 大量实时输出
 
+另外需要注意：
+
+- 不要把过长的多行启动摘要拼成一次 `my_printf()` 输出
+- 更稳妥的方式是按行分多次发送
+
 ## 10. 后续建议
 
 建议后续扩展顺序如下：
@@ -291,4 +298,3 @@ LED 的逻辑重点如下：
 3. 在 CLI 之外继续拆协议层
 4. 如日志量增大，再考虑 `TX DMA`
 5. 如启用 `D-Cache`，同步处理缓存一致性
-
