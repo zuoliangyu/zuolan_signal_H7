@@ -58,7 +58,7 @@
 
 - `zuolan_signal_STM32/App/uart/uart.c`
 - `zuolan_signal_STM32/STM32H743XG_FLASH.ld`
-- `docs/串口配置与测试说明.md`
+- `docs/串口与CLI/UART接收调试与CLI运行说明.md`
 
 ## 8. 验证方法
 

@@ -45,7 +45,7 @@ Applied fix:
 - `zuolan_signal_STM32/App/led/led.h`
 - `zuolan_signal_STM32/App/led/led.c`
 - `zuolan_signal_STM32/App/cli/cli.c`
-- `docs/串口CLI说明.md`
+- `docs/串口与CLI/CLI命令解析与扩展说明.md`
 
 ## 8. 验证方法
 
