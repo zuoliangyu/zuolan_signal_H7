@@ -6,6 +6,9 @@
 
 #include "main.h"
 
+#include "cli.h"
+#include "led.h"
+
 #define UART_PROC_TX_CHUNK_SIZE 64U
 
 #if defined(__GNUC__)
@@ -225,6 +228,26 @@ static HAL_StatusTypeDef UART_StartReceiveDMA(uart_app_port_t *port)
     return status;
 }
 
+static void UART_PrintBootStatus(void)
+{
+    (void)my_printf(&huart1,
+                    "\r\n"
+                    "System boot summary\r\n"
+                    "USART1: mode=cli, rx_dma=%s, dma_buf=%u, ring_buf=%u\r\n"
+                    "USART2: mode=echo, rx_dma=%s, dma_buf=%u, ring_buf=%u\r\n"
+                    "LED0: state=%u, blink=%u, interval_ms=%u, active_level=low\r\n"
+                    "Commands: help, echo, led\r\n"
+                    "\r\n",
+                    (s_uart_ports[UART_PORT_1].rx_ready != 0U) ? "ready" : "error",
+                    (unsigned int)UART_DMA_RX_BUF_SIZE,
+                    (unsigned int)UART_RING_BUF_SIZE,
+                    (s_uart_ports[UART_PORT_2].rx_ready != 0U) ? "ready" : "error",
+                    (unsigned int)UART_DMA_RX_BUF_SIZE,
+                    (unsigned int)UART_RING_BUF_SIZE,
+                    (unsigned int)ucLed[0], (unsigned int)LED_GetBlinkEnabled(0U),
+                    (unsigned int)LED_GetBlinkIntervalMs(0U));
+}
+
 void UART_Init(void)
 {
     for (uint32_t i = 0U; i < (uint32_t)UART_PORT_COUNT; i++)
@@ -232,6 +255,10 @@ void UART_Init(void)
         UART_ResetPort(&s_uart_ports[i]);
         (void)UART_StartReceiveDMA(&s_uart_ports[i]);
     }
+
+    CLI_Init(&huart1);
+    UART_PrintBootStatus();
+    CLI_ShowPrompt(&huart1);
 }
 
 int my_printf(UART_HandleTypeDef *huart, const char *format, ...)
@@ -290,7 +317,14 @@ void uart_proc(void)
         length = UART_PopFromRingBuffer(port, tx_buffer, sizeof(tx_buffer));
         if (length > 0U)
         {
-            (void)HAL_UART_Transmit(port->huart, tx_buffer, length, 0xFFFFU);
+            if (port->huart == &huart1)
+            {
+                CLI_InputBuffer(port->huart, tx_buffer, length);
+            }
+            else
+            {
+                (void)HAL_UART_Transmit(port->huart, tx_buffer, length, 0xFFFFU);
+            }
         }
     }
 }
