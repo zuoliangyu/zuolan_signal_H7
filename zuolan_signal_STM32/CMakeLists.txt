@@ -48,6 +48,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     App/led/led.c
     App/uart/uart.c
     App/cli/cli.c
+    App/adc/adc_app.c
     App/dac/dac_app.c
 )
 
@@ -57,6 +58,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     App/led
     App/uart
     App/cli
+    App/adc
     App/dac
 )
 

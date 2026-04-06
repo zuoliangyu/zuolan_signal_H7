@@ -6,6 +6,7 @@
 
 #include "main.h"
 
+#include "adc_app.h"
 #include "cli.h"
 #include "dac_app.h"
 #include "led.h"
@@ -252,7 +253,15 @@ static void UART_PrintBootStatus(void)
                     (unsigned long)DAC_APP_GetFreqHz(),
                     (unsigned int)DAC_APP_GetDutyPercent(),
                     (unsigned int)DAC_APP_GetCurrentRaw());
-    (void)my_printf(&huart1, "Commands: help, echo, led, dac\r\n");
+    (void)my_printf(&huart1,
+                    "ADC1: state=%s, pin=PA0, channel=16, dma_samples=%u, latest_raw=%u, latest_mv=%u, stream=%s, interval_ms=%u\r\n",
+                    (ADC_APP_IsStarted() != 0U) ? "running" : "error",
+                    (unsigned int)ADC_APP_GetBufferSamples(),
+                    (unsigned int)ADC_APP_GetLatestRaw(),
+                    (unsigned int)ADC_APP_GetLatestMv(),
+                    (ADC_APP_GetStreamEnabled() != 0U) ? "on" : "off",
+                    (unsigned int)ADC_APP_GetStreamIntervalMs());
+    (void)my_printf(&huart1, "Commands: help, echo, led, dac, adc\r\n");
     (void)my_printf(&huart1, "\r\n");
 }
 

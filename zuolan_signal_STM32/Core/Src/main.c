@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "adc.h"
 #include "dac.h"
 #include "dma.h"
 #include "tim.h"
@@ -26,6 +27,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "adc_app.h"
 #include "dac_app.h"
 #include "led.h"
 #include "scheduler.h"
@@ -51,6 +53,7 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+static task_handle_t adc_task_handle = INVALID_TASK_HANDLE;
 static task_handle_t led_task_handle = INVALID_TASK_HANDLE;
 static task_handle_t uart_task_handle = INVALID_TASK_HANDLE;
 
@@ -58,6 +61,7 @@ static task_handle_t uart_task_handle = INVALID_TASK_HANDLE;
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
+void PeriphCommonClock_Config(void);
 static void MPU_Config(void);
 /* USER CODE BEGIN PFP */
 
@@ -99,6 +103,9 @@ int main(void)
   /* Configure the system clock */
   SystemClock_Config();
 
+  /* Configure the peripherals common clocks */
+  PeriphCommonClock_Config();
+
   /* USER CODE BEGIN SysInit */
 
   /* USER CODE END SysInit */
@@ -110,13 +117,17 @@ int main(void)
   MX_USART2_UART_Init();
   MX_DAC1_Init();
   MX_TIM6_Init();
+  MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
+  ADC_APP_Init();
   DAC_APP_Init();
   Scheduler_Init();
   LED_Init();
   UART_Init();
+  adc_task_handle = Scheduler_AddTask(adc_proc, 1U, HAL_GetTick(), "adc");
   led_task_handle = Scheduler_AddTask(led_proc, 1U, HAL_GetTick(), "led");
   uart_task_handle = Scheduler_AddTask(uart_proc, 1U, HAL_GetTick(), "uart");
+  (void)adc_task_handle;
   (void)led_task_handle;
   (void)uart_task_handle;
 
@@ -187,6 +198,24 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB4CLKDivider = RCC_APB4_DIV2;
 
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+/**
+  * @brief Peripherals Common Clock Configuration
+  * @retval None
+  */
+void PeriphCommonClock_Config(void)
+{
+  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
+
+  /** Initializes the peripherals clock
+  */
+  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_CKPER;
+  PeriphClkInitStruct.CkperClockSelection = RCC_CLKPSOURCE_HSI;
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
   {
     Error_Handler();
   }

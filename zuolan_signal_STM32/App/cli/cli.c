@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "adc_app.h"
 #include "dac_app.h"
 #include "led.h"
 #include "uart.h"
@@ -58,12 +59,14 @@ void CLI_ShowPrompt(UART_HandleTypeDef *huart)
 static void CLI_CmdHelp(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 static void CLI_CmdEcho(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 static void CLI_CmdLed(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
+static void CLI_CmdAdc(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 static void CLI_CmdDac(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 
 static const cli_command_t s_cli_commands[] = {
     {"help", "List all commands", CLI_CmdHelp},
     {"echo", "Echo parameters: echo <text>", CLI_CmdEcho},
     {"led", "Control LED: led on/off/toggle/blink", CLI_CmdLed},
+    {"adc", "Read ADC: adc get/raw/mv/avg/stream/help", CLI_CmdAdc},
     {"dac", "Control DAC: dac get/mode/amp/offset/freq/duty/start/stop", CLI_CmdDac},
 };
 
@@ -477,6 +480,128 @@ static void CLI_CmdDac(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
     }
 
     CLI_WriteLine(huart, "Usage: dac get|mode <value|?>|amp <mv|?>|offset <mv|?>|freq <hz|?>|duty <0..100|?>|start|stop");
+}
+
+static void CLI_CmdAdc(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
+{
+    unsigned long interval_ms;
+    char *end_ptr;
+
+    if (argc <= 1U)
+    {
+        CLI_WriteLine(huart, "Usage: adc get|raw|mv|avg|stream on [ms]|stream off|stream ?|help");
+        return;
+    }
+
+    if (strcmp(argv[1], "help") == 0)
+    {
+        CLI_WriteLine(huart, "ADC commands:");
+        CLI_WriteLine(huart, "  adc get             - show full ADC state");
+        CLI_WriteLine(huart, "  adc raw             - show latest raw sample");
+        CLI_WriteLine(huart, "  adc mv              - show latest sample in mV");
+        CLI_WriteLine(huart, "  adc avg             - show averaged raw and mV");
+        CLI_WriteLine(huart, "  adc stream on [ms]  - start continuous CSV output: raw,mv");
+        CLI_WriteLine(huart, "  adc stream off      - stop continuous output");
+        CLI_WriteLine(huart, "  adc stream ?        - show stream state");
+        return;
+    }
+
+    if (strcmp(argv[1], "get") == 0)
+    {
+        (void)my_printf(huart,
+                        "ADC1: state=%s, pin=PA0, channel=16, dma_samples=%u, latest_raw=%u, latest_mv=%u, avg_raw=%u, avg_mv=%u, stream=%s, interval_ms=%u\r\n",
+                        (ADC_APP_IsStarted() != 0U) ? "running" : "error",
+                        (unsigned int)ADC_APP_GetBufferSamples(),
+                        (unsigned int)ADC_APP_GetLatestRaw(),
+                        (unsigned int)ADC_APP_GetLatestMv(),
+                        (unsigned int)ADC_APP_GetAverageRaw(),
+                        (unsigned int)ADC_APP_GetAverageMv(),
+                        (ADC_APP_GetStreamEnabled() != 0U) ? "on" : "off",
+                        (unsigned int)ADC_APP_GetStreamIntervalMs());
+        return;
+    }
+
+    if (strcmp(argv[1], "raw") == 0)
+    {
+        (void)my_printf(huart, "raw=%u\r\n", (unsigned int)ADC_APP_GetLatestRaw());
+        return;
+    }
+
+    if (strcmp(argv[1], "mv") == 0)
+    {
+        (void)my_printf(huart, "mv=%u\r\n", (unsigned int)ADC_APP_GetLatestMv());
+        return;
+    }
+
+    if (strcmp(argv[1], "avg") == 0)
+    {
+        (void)my_printf(huart, "avg_raw=%u, avg_mv=%u\r\n",
+                        (unsigned int)ADC_APP_GetAverageRaw(),
+                        (unsigned int)ADC_APP_GetAverageMv());
+        return;
+    }
+
+    if (strcmp(argv[1], "stream") == 0)
+    {
+        if (argc < 3U)
+        {
+            CLI_WriteLine(huart, "Usage: adc stream on [ms]|off|?");
+            return;
+        }
+
+        if (strcmp(argv[2], "?") == 0)
+        {
+            (void)my_printf(huart, "stream=%s, interval_ms=%u, format=raw,mv\r\n",
+                            (ADC_APP_GetStreamEnabled() != 0U) ? "on" : "off",
+                            (unsigned int)ADC_APP_GetStreamIntervalMs());
+            return;
+        }
+
+        if (strcmp(argv[2], "on") == 0)
+        {
+            if (argc >= 4U)
+            {
+                interval_ms = strtoul(argv[3], &end_ptr, 10);
+                if ((*argv[3] == '\0') || (*end_ptr != '\0') ||
+                    (interval_ms < (unsigned long)ADC_APP_MIN_STREAM_INTERVAL_MS) ||
+                    (interval_ms > 65535UL))
+                {
+                    CLI_WriteLine(huart, "Usage: adc stream on [ms], ms=2..65535");
+                    return;
+                }
+
+                if (ADC_APP_SetStreamIntervalMs((uint16_t)interval_ms) == 0U)
+                {
+                    CLI_WriteLine(huart, "Usage: adc stream on [ms], ms=2..65535");
+                    return;
+                }
+            }
+
+            if (ADC_APP_IsStarted() == 0U)
+            {
+                CLI_WriteLine(huart, "ADC1 is not running");
+                return;
+            }
+
+            ADC_APP_SetStreamEnabled(1U);
+            (void)my_printf(huart,
+                            "ADC stream started: interval_ms=%u, format=raw,mv\r\n",
+                            (unsigned int)ADC_APP_GetStreamIntervalMs());
+            return;
+        }
+
+        if (strcmp(argv[2], "off") == 0)
+        {
+            ADC_APP_SetStreamEnabled(0U);
+            CLI_WriteLine(huart, "ADC stream stopped");
+            return;
+        }
+
+        CLI_WriteLine(huart, "Usage: adc stream on [ms]|off|?");
+        return;
+    }
+
+    CLI_WriteLine(huart, "Usage: adc get|raw|mv|avg|stream on [ms]|stream off|stream ?|help");
 }
 
 void CLI_Init(UART_HandleTypeDef *huart)
