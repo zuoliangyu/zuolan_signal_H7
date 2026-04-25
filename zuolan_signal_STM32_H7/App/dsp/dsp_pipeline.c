@@ -5,6 +5,7 @@
 #include "adc_app.h"
 #include "dsp.h"
 #include "dsp_filters.h"
+#include "dsp_window.h"
 #include "uart.h"  // my_printf
 
 // ============================================================================
@@ -38,6 +39,17 @@ static struct {
     // 算法实例 + 状态缓冲
     dsp_fir_f32_t    fir;
     dsp_biquad_f32_t biq;
+
+    // 加窗
+    dsp_window_type_t window;
+    uint32_t          window_len;     // 当前窗系数对应的长度
+    float32_t         window_cgain;   // coherent gain = sum(w)/N
+
+    // 自动测试用：silent=1 时 emit_frame 不打印单帧日志
+    uint8_t           quiet;
+
+    // 最近一帧结果（emit_frame 末尾填）
+    dsp_pipeline_result_t last_result;
 } s_pl;
 
 // ============================================================================
@@ -46,6 +58,7 @@ static struct {
 static float32_t s_acc_buf[PL_FFT_MAX];
 static float32_t s_fft_scratch[PL_FFT_MAX];
 static float32_t s_fft_mag[PL_FFT_MAX / 2U];
+static float32_t s_window_buf[PL_FFT_MAX];
 
 // 滤波 state：按各自最大长度分配，供该类滤波器共用
 static float32_t s_fir_state[PL_FIR_MAX_TAPS + PL_BLOCK_SAMPLES - 1U];
@@ -74,6 +87,26 @@ static const char *pipeline_mode_name(pipeline_mode_t m)
     case PIPELINE_MODE_STREAM:  return "stream";
     default:                    return "?";
     }
+}
+
+// 重新生成当前窗系数（fft 改变 / window 改变时调用）
+// 失败（如 KAISER_TEMPLATE 长度不匹配）时自动回退到 NONE，并把 cgain 置 1
+static void pipeline_reload_window(void)
+{
+    const uint32_t N = (uint32_t)s_pl.fft_size;
+    if (DSP_Window_Generate(s_pl.window, s_window_buf, N) != 0) {
+        // 长度不匹配（最常见：选了 kaiser 但 fft != 1024），退回 NONE
+        if (s_pl.out_huart != NULL) {
+            (void)my_printf(s_pl.out_huart,
+                "[PIPELINE] window=%s requires fft_len=%u, fall back to none\r\n",
+                DSP_Window_Name(s_pl.window),
+                (unsigned)DSP_WINDOW_KAISER_TEMPLATE_LEN);
+        }
+        s_pl.window = DSP_WINDOW_NONE;
+        (void)DSP_Window_Generate(DSP_WINDOW_NONE, s_window_buf, N);
+    }
+    s_pl.window_len   = N;
+    s_pl.window_cgain = DSP_Window_CoherentGain(s_window_buf, N);
 }
 
 // 重新初始化滤波器实例（state 清零）
@@ -158,13 +191,23 @@ static void pipeline_apply_filter(const float32_t *src, float32_t *dst)
 // 执行一次 FFT 并输出，结束后清累积器
 static void pipeline_emit_frame(void)
 {
+    const uint32_t N = (uint32_t)s_pl.fft_size;
+
     float32_t frame_mean = 0.0f;
     if (s_pl.dc_remove != 0U) {
-        arm_mean_f32(s_acc_buf, (uint32_t)s_pl.fft_size, &frame_mean);
-        for (uint32_t i = 0U; i < (uint32_t)s_pl.fft_size; i++) {
+        arm_mean_f32(s_acc_buf, N, &frame_mean);
+        for (uint32_t i = 0U; i < N; i++) {
             s_acc_buf[i] -= frame_mean;
         }
     }
+
+    // 加窗（in-place）：仅在 window != NONE 时实际改变数据
+    // NONE 时窗系数也是全 1，arm_mult_f32 等同于不变 —— 为了少一次 N 次乘，
+    // 这里仍跳过避免浪费 CPU
+    if (s_pl.window != DSP_WINDOW_NONE) {
+        arm_mult_f32(s_acc_buf, s_window_buf, s_acc_buf, N);
+    }
+
     if (DSP_RFFT_Magnitude(s_pl.fft_size,
                            s_acc_buf, s_fft_scratch, s_fft_mag) != 0) {
         (void)my_printf(s_pl.out_huart, "[PIPELINE] rfft failed\r\n");
@@ -174,29 +217,51 @@ static void pipeline_emit_frame(void)
 
     uint32_t  peak_bin = 0U;
     float32_t peak_val = 0.0f;
-    DSP_FindPeak(s_fft_mag, (uint32_t)s_pl.fft_size / 2U, &peak_bin, &peak_val);
+    DSP_FindPeak(s_fft_mag, N / 2U, &peak_bin, &peak_val);
 
     const uint32_t fs       = ADC_APP_GetSampleRateHz();
-    const float32_t bin_hz  = (float32_t)fs / (float32_t)s_pl.fft_size;
+    const float32_t bin_hz  = (float32_t)fs / (float32_t)N;
     const float32_t peak_hz = (float32_t)peak_bin * bin_hz;
+
+    // 单频幅度补偿：peak_amp ≈ peak_val / coherent_gain
+    // NONE 下 cgain=1，等同于不补偿
+    const float32_t cg = (s_pl.window_cgain > 1e-6f) ? s_pl.window_cgain : 1.0f;
+    const float32_t peak_amp = peak_val / cg;
 
     s_pl.frame_seq++;
 
+    // 写 last_result 快照
+    s_pl.last_result.valid        = 1U;
+    s_pl.last_result.frame_seq    = s_pl.frame_seq;
+    s_pl.last_result.fft_size     = N;
+    s_pl.last_result.fs_hz        = fs;
+    s_pl.last_result.window       = s_pl.window;
+    s_pl.last_result.cgain        = cg;
+    s_pl.last_result.frame_mean   = frame_mean;
+    s_pl.last_result.peak_bin     = peak_bin;
+    s_pl.last_result.peak_freq_hz = peak_hz;
+    s_pl.last_result.peak_mag     = peak_val;
+    s_pl.last_result.peak_amp     = peak_amp;
+
     // 输出降频：仅每 output_rate 帧打印一次（oneshot 模式总是打）
-    uint8_t should_print = (s_pl.mode == PIPELINE_MODE_ONESHOT) ||
-                           (s_pl.output_rate <= 1U) ||
-                           ((s_pl.frame_seq % (uint32_t)s_pl.output_rate) == 0U);
+    // quiet=1 时强制不打印（自动测试用）
+    uint8_t should_print = (s_pl.quiet == 0U) &&
+                           ((s_pl.mode == PIPELINE_MODE_ONESHOT) ||
+                            (s_pl.output_rate <= 1U) ||
+                            ((s_pl.frame_seq % (uint32_t)s_pl.output_rate) == 0U));
     if (should_print) {
         (void)my_printf(s_pl.out_huart,
-            "[PIPELINE] seq=%lu filter=%s fft=%u fs=%lu Hz frame_mean=%.1f peak_bin=%lu peak_freq=%.2f Hz mag=%.2f\r\n",
+            "[PIPELINE] seq=%lu filter=%s window=%s fft=%u fs=%lu Hz frame_mean=%.1f peak_bin=%lu peak_freq=%.2f Hz mag=%.2f amp=%.2f\r\n",
             (unsigned long)s_pl.frame_seq,
             pipeline_filter_name(s_pl.filter),
+            DSP_Window_Name(s_pl.window),
             (unsigned)s_pl.fft_size,
             (unsigned long)fs,
             (double)frame_mean,
             (unsigned long)peak_bin,
             (double)peak_hz,
-            (double)peak_val);
+            (double)peak_val,
+            (double)peak_amp);
     }
 
     s_pl.acc_count = 0U;
@@ -215,7 +280,9 @@ void DSP_Pipeline_Init(UART_HandleTypeDef *out_huart)
     s_pl.dc_remove   = 1U;
     s_pl.output_rate = 1U;
     s_pl.out_huart   = out_huart;
+    s_pl.window      = DSP_WINDOW_NONE;
     pipeline_reload_filter();
+    pipeline_reload_window();
 }
 
 void dsp_pipeline_proc(void)
@@ -251,9 +318,11 @@ void dsp_pipeline_proc(void)
 void DSP_Pipeline_PrintStatus(UART_HandleTypeDef *huart)
 {
     (void)my_printf(huart,
-        "[PIPELINE] mode=%s filter=%s fft=%u dc=%s rate=%u acc=%u/%u seq=%lu fs=%lu Hz\r\n",
+        "[PIPELINE] mode=%s filter=%s window=%s cgain=%.3f fft=%u dc=%s rate=%u acc=%u/%u seq=%lu fs=%lu Hz\r\n",
         pipeline_mode_name(s_pl.mode),
         pipeline_filter_name(s_pl.filter),
+        DSP_Window_Name(s_pl.window),
+        (double)s_pl.window_cgain,
         (unsigned)s_pl.fft_size,
         (s_pl.dc_remove != 0U) ? "on" : "off",
         (unsigned)s_pl.output_rate,
@@ -261,6 +330,33 @@ void DSP_Pipeline_PrintStatus(UART_HandleTypeDef *huart)
         (unsigned)s_pl.fft_size,
         (unsigned long)s_pl.frame_seq,
         (unsigned long)ADC_APP_GetSampleRateHz());
+}
+
+void DSP_Pipeline_PrintWindows(UART_HandleTypeDef *huart)
+{
+    (void)my_printf(huart, "Available windows:\r\n");
+    for (uint32_t i = 0U; i < (uint32_t)DSP_WINDOW_COUNT; i++) {
+        (void)my_printf(huart, "  %s%s\r\n",
+                        DSP_Window_Name((dsp_window_type_t)i),
+                        ((dsp_window_type_t)i == s_pl.window) ? "  (current)" : "");
+    }
+}
+
+int DSP_Pipeline_SetWindowByName(const char *name)
+{
+    dsp_window_type_t t;
+    if (DSP_Window_FromName(name, &t) != 0) {
+        return -1;
+    }
+    s_pl.window    = t;
+    s_pl.acc_count = 0U;
+    pipeline_reload_window();
+    return 0;
+}
+
+dsp_window_type_t DSP_Pipeline_GetWindow(void)
+{
+    return s_pl.window;
 }
 
 void DSP_Pipeline_PrintFilters(UART_HandleTypeDef *huart)
@@ -296,6 +392,7 @@ int DSP_Pipeline_SetFftLen(uint32_t len)
     }
     s_pl.fft_size  = (dsp_fft_size_t)len;
     s_pl.acc_count = 0U;
+    pipeline_reload_window();   // 窗长度必须跟 fft 同步
     return 0;
 }
 
@@ -351,4 +448,43 @@ int DSP_Pipeline_SetStream(uint8_t enabled)
         s_pl.mode = PIPELINE_MODE_IDLE;
     }
     return 0;
+}
+
+int DSP_Pipeline_RunOneshotBlocking(uint32_t timeout_ms,
+                                    uint8_t  silent,
+                                    dsp_pipeline_result_t *result)
+{
+    if (ADC_APP_IsStarted() == 0U) {
+        return -1;
+    }
+    s_pl.acc_count            = 0U;
+    s_pl.last_result.valid    = 0U;
+    s_pl.mode                 = PIPELINE_MODE_ONESHOT;
+    const uint8_t prev_quiet  = s_pl.quiet;
+    s_pl.quiet                = (silent != 0U) ? 1U : 0U;
+
+    const uint32_t t0 = HAL_GetTick();
+    while (s_pl.mode == PIPELINE_MODE_ONESHOT) {
+        // 主动驱动 pipeline_proc：消费 ADC 队列里的块
+        // ADC 是 DMA + 中断填队列，所以这里阻塞不会丢数据
+        dsp_pipeline_proc();
+        if ((uint32_t)(HAL_GetTick() - t0) > timeout_ms) {
+            s_pl.mode  = PIPELINE_MODE_IDLE;
+            s_pl.quiet = prev_quiet;
+            return -2;
+        }
+    }
+
+    s_pl.quiet = prev_quiet;
+    if (result != NULL) {
+        *result = s_pl.last_result;
+    }
+    return 0;
+}
+
+void DSP_Pipeline_GetLastResult(dsp_pipeline_result_t *out)
+{
+    if (out != NULL) {
+        *out = s_pl.last_result;
+    }
 }

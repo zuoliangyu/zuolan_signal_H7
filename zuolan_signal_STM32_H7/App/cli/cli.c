@@ -68,6 +68,7 @@ static void CLI_CmdDac(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 static void CLI_CmdFft(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 static void CLI_CmdFilter(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 static void CLI_CmdPipeline(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
+static void CLI_CmdPipelineWindowTest(UART_HandleTypeDef *huart);
 static void CLI_CmdDacRate(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 static void CLI_CmdAdcRate(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 static void CLI_CmdAdcDump(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
@@ -83,7 +84,7 @@ static const cli_command_t s_cli_commands[] = {
     {"dac", "Control DAC: dac get/mode/amp/offset/freq/duty/start/stop/test", CLI_CmdDac},
     {"fft", "FFT self-test: fft selftest", CLI_CmdFft},
     {"filter", "Filter self-test: filter selftest", CLI_CmdFilter},
-    {"pipeline", "ADC->filter->FFT pipeline: pipeline status/filter/fft/dc/rate/run/stream", CLI_CmdPipeline},
+    {"pipeline", "ADC->filter->FFT pipeline: pipeline status/filter/window [test]/fft/dc/rate/run/stream", CLI_CmdPipeline},
     {"dacrate", "Measure DAC actual output Hz over 1 second", CLI_CmdDacRate},
     {"adcrate", "Measure ADC actual sample rate over 1 second", CLI_CmdAdcRate},
     {"adcdump", "Dump TIM2 register state for ADC trigger debug", CLI_CmdAdcDump},
@@ -806,7 +807,7 @@ static void CLI_CmdPipeline(UART_HandleTypeDef *huart, uint8_t argc, char *argv[
 {
     if (argc < 2U)
     {
-        CLI_WriteLine(huart, "Usage: pipeline status|filter|fft|dc|rate|run|stream");
+        CLI_WriteLine(huart, "Usage: pipeline status|filter|window|fft|dc|rate|run|stream");
         return;
     }
 
@@ -829,6 +830,27 @@ static void CLI_CmdPipeline(UART_HandleTypeDef *huart, uint8_t argc, char *argv[
             return;
         }
         (void)my_printf(huart, "filter -> %s\r\n", argv[2]);
+        return;
+    }
+
+    if (strcmp(argv[1], "window") == 0)
+    {
+        if ((argc < 3U) || (strcmp(argv[2], "?") == 0))
+        {
+            DSP_Pipeline_PrintWindows(huart);
+            return;
+        }
+        if (strcmp(argv[2], "test") == 0)
+        {
+            CLI_CmdPipelineWindowTest(huart);
+            return;
+        }
+        if (DSP_Pipeline_SetWindowByName(argv[2]) != 0)
+        {
+            (void)my_printf(huart, "Unknown window: %s\r\n", argv[2]);
+            return;
+        }
+        (void)my_printf(huart, "window -> %s\r\n", argv[2]);
         return;
     }
 
@@ -923,7 +945,132 @@ static void CLI_CmdPipeline(UART_HandleTypeDef *huart, uint8_t argc, char *argv[
         return;
     }
 
-    CLI_WriteLine(huart, "Usage: pipeline status|filter|fft|dc|rate|run|stream");
+    CLI_WriteLine(huart, "Usage: pipeline status|filter|window|fft|dc|rate|run|stream");
+}
+
+// 自动测试：依次跑 none/hann/hamming/blackman 各一次 oneshot，
+// 统计 peak_bin / mag / amp 并出 PASS/FAIL 判定。
+// 使用前提：DAC 已输出已知正弦（推荐 dac test），杜邦线把 PA4 接到 PA0。
+static void CLI_CmdPipelineWindowTest(UART_HandleTypeDef *huart)
+{
+    static const char *const k_windows[] = {"none", "hann", "hamming", "blackman"};
+    static const uint32_t     k_count    = (uint32_t)(sizeof(k_windows) / sizeof(k_windows[0]));
+
+    if (ADC_APP_IsStarted() == 0U)
+    {
+        CLI_WriteLine(huart, "ADC not running");
+        return;
+    }
+
+    // 强制把 stream 关掉，避免抢资源
+    (void)DSP_Pipeline_SetStream(0U);
+
+    // 保存现场，结束后恢复
+    dsp_window_type_t prev_window = DSP_Pipeline_GetWindow();
+
+    dsp_pipeline_result_t results[4];
+    (void)memset(results, 0, sizeof(results));
+
+    CLI_WriteLine(huart, "[WINDOW-TEST] warmup ...");
+
+    // warmup：丢 2 帧，让 DAC / ADC / DMA 队列都稳定下来。
+    // 否则刚 dac test 之后立刻测试，第一帧会采到 DAC 启动瞬态信号。
+    (void)DSP_Pipeline_SetWindowByName("none");
+    for (uint32_t w = 0U; w < 2U; w++) {
+        dsp_pipeline_result_t discard;
+        (void)DSP_Pipeline_RunOneshotBlocking(2000U, 1U, &discard);
+    }
+
+    CLI_WriteLine(huart, "[WINDOW-TEST] running 4 windows x 1 oneshot each ...");
+
+    for (uint32_t i = 0U; i < k_count; i++)
+    {
+        if (DSP_Pipeline_SetWindowByName(k_windows[i]) != 0)
+        {
+            (void)my_printf(huart, "  %-9s: window unsupported\r\n", k_windows[i]);
+            continue;
+        }
+        int rc = DSP_Pipeline_RunOneshotBlocking(2000U, 1U, &results[i]);
+        if (rc == -2)
+        {
+            (void)my_printf(huart, "  %-9s: timeout\r\n", k_windows[i]);
+        }
+        else if (rc != 0)
+        {
+            (void)my_printf(huart, "  %-9s: error rc=%d\r\n", k_windows[i], rc);
+        }
+    }
+
+    // 还原窗
+    (void)DSP_Pipeline_SetWindowByName(DSP_Window_Name(prev_window));
+
+    // ---- 打印对比表 ----
+    CLI_WriteLine(huart, "");
+    CLI_WriteLine(huart, "  window     cgain  peak_bin  peak_freq      mag           amp           amp/none");
+    CLI_WriteLine(huart, "  ---------  -----  --------  -------------  ------------  ------------  --------");
+
+    float32_t amp_none = (results[0].valid != 0U) ? results[0].peak_amp : 0.0f;
+    if (amp_none < 1.0f) { amp_none = 1.0f; }
+
+    for (uint32_t i = 0U; i < k_count; i++)
+    {
+        if (results[i].valid == 0U)
+        {
+            (void)my_printf(huart, "  %-9s  (no result)\r\n", k_windows[i]);
+            continue;
+        }
+        (void)my_printf(huart,
+            "  %-9s  %.3f  %8lu  %9.2f Hz  %12.0f  %12.0f  %.3f\r\n",
+            k_windows[i],
+            (double)results[i].cgain,
+            (unsigned long)results[i].peak_bin,
+            (double)results[i].peak_freq_hz,
+            (double)results[i].peak_mag,
+            (double)results[i].peak_amp,
+            (double)(results[i].peak_amp / amp_none));
+    }
+
+    // ---- 判定：peak_bin 一致（±2）+ amp 在 ±15% ----
+    if (results[0].valid == 0U)
+    {
+        CLI_WriteLine(huart, "  verdict: SKIP (no baseline result for 'none')");
+        return;
+    }
+
+    uint32_t base_bin = results[0].peak_bin;
+    uint8_t  pass     = 1U;
+    const char *fail_reason = "";
+
+    for (uint32_t i = 1U; i < k_count; i++)
+    {
+        if (results[i].valid == 0U) { continue; }
+
+        int32_t db = (int32_t)results[i].peak_bin - (int32_t)base_bin;
+        if ((db < -2) || (db > 2))
+        {
+            pass = 0U;
+            fail_reason = "peak_bin shifted";
+            break;
+        }
+        float32_t ratio = results[i].peak_amp / amp_none;
+        if ((ratio < 0.85f) || (ratio > 1.15f))
+        {
+            pass = 0U;
+            fail_reason = "amp deviation > 15%";
+            break;
+        }
+    }
+
+    if (pass != 0U)
+    {
+        (void)my_printf(huart,
+            "  verdict: PASS  (peak_bin within +/-2 of base=%lu, amp within +/-15%%)\r\n",
+            (unsigned long)base_bin);
+    }
+    else
+    {
+        (void)my_printf(huart, "  verdict: FAIL  (%s)\r\n", fail_reason);
+    }
 }
 
 static void CLI_CmdDacRate(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])

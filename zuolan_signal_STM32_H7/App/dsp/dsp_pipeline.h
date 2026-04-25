@@ -2,7 +2,9 @@
 #define DSP_PIPELINE_H
 
 #include <stdint.h>
+#include "arm_math.h"
 #include "stm32h7xx_hal.h"
+#include "dsp_window.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -13,6 +15,21 @@ typedef enum {
     PIPELINE_MODE_ONESHOT,
     PIPELINE_MODE_STREAM,
 } pipeline_mode_t;
+
+// 单帧结果快照：每次 emit_frame 都会更新 last_result
+typedef struct {
+    uint8_t           valid;
+    uint32_t          frame_seq;
+    uint32_t          fft_size;
+    uint32_t          fs_hz;
+    dsp_window_type_t window;
+    float32_t         cgain;
+    float32_t         frame_mean;
+    uint32_t          peak_bin;
+    float32_t         peak_freq_hz;
+    float32_t         peak_mag;     // RFFT magnitude（受窗增益影响）
+    float32_t         peak_amp;     // = peak_mag / cgain，单频幅度估计
+} dsp_pipeline_result_t;
 
 typedef enum {
     PIPELINE_FILTER_NONE = 0,
@@ -37,8 +54,23 @@ int  DSP_Pipeline_SetFftLen(uint32_t len);
 uint32_t DSP_Pipeline_GetFftLen(void);
 void DSP_Pipeline_SetDcRemove(uint8_t enabled);
 uint8_t DSP_Pipeline_GetDcRemove(void);
+void DSP_Pipeline_PrintWindows(UART_HandleTypeDef *huart);
+int  DSP_Pipeline_SetWindowByName(const char *name);
+dsp_window_type_t DSP_Pipeline_GetWindow(void);
 int  DSP_Pipeline_RunOneshot(void);
 int  DSP_Pipeline_SetStream(uint8_t enabled);
+
+// 同步执行一次 oneshot：内部反复调用 dsp_pipeline_proc，
+//   等满 1 帧（fft_size 个样本）完成 RFFT 后返回。
+//   silent != 0 时不产生单帧日志（用于自动测试，避免污染输出）。
+//   result != NULL 时把这一帧的结果拷贝出去。
+//   返回 0 成功，-1 ADC 未启动，-2 超时
+int DSP_Pipeline_RunOneshotBlocking(uint32_t timeout_ms,
+                                    uint8_t  silent,
+                                    dsp_pipeline_result_t *result);
+
+// 取最近一帧结果快照
+void DSP_Pipeline_GetLastResult(dsp_pipeline_result_t *out);
 // 输出降频：每 N 帧打印一次（N=1 表示每帧都打），N 范围 [1, 1000]
 int  DSP_Pipeline_SetOutputRate(uint16_t every_n_frames);
 uint16_t DSP_Pipeline_GetOutputRate(void);
