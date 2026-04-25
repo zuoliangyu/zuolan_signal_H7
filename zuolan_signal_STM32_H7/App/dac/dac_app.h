@@ -29,6 +29,7 @@ void DAC_APP_Init(void);
 void DAC_APP_Start(void);
 void DAC_APP_Stop(void);
 uint8_t DAC_APP_IsStarted(void);
+uint32_t DAC_APP_GetDmaFullCount(void);
 
 void DAC_APP_SetMode(dac_app_mode_t mode);
 dac_app_mode_t DAC_APP_GetMode(void);

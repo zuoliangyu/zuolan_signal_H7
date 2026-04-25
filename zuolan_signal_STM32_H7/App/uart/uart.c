@@ -268,7 +268,7 @@ static void UART_PrintBootStatus(void)
     (void)my_printf(&huart1,
                     "DSP: state=%s, lib=CMSIS-DSP V1.10, rfft_sizes=256/512/1024, fir/biquad=ready, float=hard\r\n",
                     (DSP_IsInited() != 0U) ? "ready" : "error");
-    (void)my_printf(&huart1, "Commands: help, echo, led, dac, adc, fft, filter\r\n");
+    (void)my_printf(&huart1, "Commands: help, echo, led, dac, adc, fft, filter, pipeline\r\n");
     (void)my_printf(&huart1, "\r\n");
 }
 

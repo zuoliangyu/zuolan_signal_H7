@@ -30,6 +30,7 @@
 #include "adc_app.h"
 #include "dac_app.h"
 #include "dsp.h"
+#include "dsp_pipeline.h"
 #include "led.h"
 #include "scheduler.h"
 #include "uart.h"
@@ -57,6 +58,7 @@
 static task_handle_t adc_task_handle = INVALID_TASK_HANDLE;
 static task_handle_t led_task_handle = INVALID_TASK_HANDLE;
 static task_handle_t uart_task_handle = INVALID_TASK_HANDLE;
+static task_handle_t dsp_pipeline_task_handle = INVALID_TASK_HANDLE;
 
 /* USER CODE END PV */
 
@@ -124,15 +126,18 @@ int main(void)
   ADC_APP_Init();
   DAC_APP_Init();
   DSP_Init();
+  DSP_Pipeline_Init(&huart1);
   Scheduler_Init();
   LED_Init();
   UART_Init();
   adc_task_handle = Scheduler_AddTask(adc_proc, 1U, HAL_GetTick(), "adc");
   led_task_handle = Scheduler_AddTask(led_proc, 1U, HAL_GetTick(), "led");
   uart_task_handle = Scheduler_AddTask(uart_proc, 1U, HAL_GetTick(), "uart");
+  dsp_pipeline_task_handle = Scheduler_AddTask(dsp_pipeline_proc, 1U, HAL_GetTick(), "dsp_pl");
   (void)adc_task_handle;
   (void)led_task_handle;
   (void)uart_task_handle;
+  (void)dsp_pipeline_task_handle;
 
   /* USER CODE END 2 */
 

@@ -331,6 +331,22 @@ static void DAC_APP_RegenerateWaveBuffer(void)
     }
 }
 
+// DMA 完成回调计数（每完成一次 256 样本 = 一个输出周期），用于诊断 DAC 实际输出频率
+static volatile uint32_t s_dac_dma_full_count = 0U;
+
+void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac)
+{
+    if (hdac == &hdac1)
+    {
+        s_dac_dma_full_count++;
+    }
+}
+
+uint32_t DAC_APP_GetDmaFullCount(void)
+{
+    return s_dac_dma_full_count;
+}
+
 static uint8_t DAC_APP_StartCurrentMode(void)
 {
     uint32_t actual_update_hz = 0U;

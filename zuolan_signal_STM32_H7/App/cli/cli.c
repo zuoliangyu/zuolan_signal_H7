@@ -4,10 +4,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "adc.h"
 #include "adc_app.h"
 #include "dac_app.h"
 #include "dsp.h"
+#include "dsp_pipeline.h"
 #include "led.h"
+#include "tim.h"
 #include "uart.h"
 
 #define CLI_MAX_LINE_LENGTH 128U
@@ -64,6 +67,10 @@ static void CLI_CmdAdc(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 static void CLI_CmdDac(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 static void CLI_CmdFft(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 static void CLI_CmdFilter(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
+static void CLI_CmdPipeline(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
+static void CLI_CmdDacRate(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
+static void CLI_CmdAdcRate(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
+static void CLI_CmdAdcDump(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 
 static const cli_command_t s_cli_commands[] = {
     {"help", "List all commands", CLI_CmdHelp},
@@ -73,6 +80,10 @@ static const cli_command_t s_cli_commands[] = {
     {"dac", "Control DAC: dac get/mode/amp/offset/freq/duty/start/stop", CLI_CmdDac},
     {"fft", "FFT self-test: fft selftest", CLI_CmdFft},
     {"filter", "Filter self-test: filter selftest", CLI_CmdFilter},
+    {"pipeline", "ADC->filter->FFT pipeline: pipeline status/filter/fft/dc/run/stream", CLI_CmdPipeline},
+    {"dacrate", "Measure DAC actual output Hz over 1 second", CLI_CmdDacRate},
+    {"adcrate", "Measure ADC actual sample rate over 1 second", CLI_CmdAdcRate},
+    {"adcdump", "Dump TIM2 register state for ADC trigger debug", CLI_CmdAdcDump},
 };
 
 static uint8_t CLI_Tokenize(char *line, char *argv[], uint8_t max_tokens)
@@ -769,6 +780,173 @@ static void CLI_CmdFilter(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
     }
 
     CLI_WriteLine(huart, "Usage: filter selftest");
+}
+
+static void CLI_CmdPipeline(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
+{
+    if (argc < 2U)
+    {
+        CLI_WriteLine(huart, "Usage: pipeline status|filter|fft|dc|run|stream");
+        return;
+    }
+
+    if (strcmp(argv[1], "status") == 0)
+    {
+        DSP_Pipeline_PrintStatus(huart);
+        return;
+    }
+
+    if (strcmp(argv[1], "filter") == 0)
+    {
+        if ((argc < 3U) || (strcmp(argv[2], "?") == 0))
+        {
+            DSP_Pipeline_PrintFilters(huart);
+            return;
+        }
+        if (DSP_Pipeline_SetFilterByName(argv[2]) != 0)
+        {
+            (void)my_printf(huart, "Unknown filter: %s\r\n", argv[2]);
+            return;
+        }
+        (void)my_printf(huart, "filter -> %s\r\n", argv[2]);
+        return;
+    }
+
+    if (strcmp(argv[1], "fft") == 0)
+    {
+        if ((argc < 3U) || (strcmp(argv[2], "?") == 0))
+        {
+            (void)my_printf(huart, "fft = %lu (allowed: 256/512/1024)\r\n",
+                            (unsigned long)DSP_Pipeline_GetFftLen());
+            return;
+        }
+        char *end_ptr;
+        unsigned long len = strtoul(argv[2], &end_ptr, 10);
+        if ((*end_ptr != '\0') || (DSP_Pipeline_SetFftLen((uint32_t)len) != 0))
+        {
+            CLI_WriteLine(huart, "Usage: pipeline fft 256|512|1024|?");
+            return;
+        }
+        (void)my_printf(huart, "fft -> %lu\r\n", len);
+        return;
+    }
+
+    if (strcmp(argv[1], "dc") == 0)
+    {
+        if ((argc < 3U) || (strcmp(argv[2], "?") == 0))
+        {
+            (void)my_printf(huart, "dc = %s\r\n",
+                            (DSP_Pipeline_GetDcRemove() != 0U) ? "on" : "off");
+            return;
+        }
+        if (strcmp(argv[2], "on") == 0)        { DSP_Pipeline_SetDcRemove(1U); }
+        else if (strcmp(argv[2], "off") == 0)  { DSP_Pipeline_SetDcRemove(0U); }
+        else { CLI_WriteLine(huart, "Usage: pipeline dc on|off|?"); return; }
+        (void)my_printf(huart, "dc -> %s\r\n", argv[2]);
+        return;
+    }
+
+    if (strcmp(argv[1], "run") == 0)
+    {
+        if (DSP_Pipeline_RunOneshot() != 0)
+        {
+            CLI_WriteLine(huart, "ADC not running");
+            return;
+        }
+        CLI_WriteLine(huart, "pipeline oneshot armed");
+        return;
+    }
+
+    if (strcmp(argv[1], "stream") == 0)
+    {
+        if (argc < 3U)
+        {
+            CLI_WriteLine(huart, "Usage: pipeline stream on|off");
+            return;
+        }
+        if (strcmp(argv[2], "on") == 0)
+        {
+            if (DSP_Pipeline_SetStream(1U) != 0)
+            {
+                CLI_WriteLine(huart, "ADC not running");
+                return;
+            }
+            CLI_WriteLine(huart, "pipeline stream started");
+            return;
+        }
+        if (strcmp(argv[2], "off") == 0)
+        {
+            (void)DSP_Pipeline_SetStream(0U);
+            CLI_WriteLine(huart, "pipeline stream stopped");
+            return;
+        }
+        CLI_WriteLine(huart, "Usage: pipeline stream on|off");
+        return;
+    }
+
+    CLI_WriteLine(huart, "Usage: pipeline status|filter|fft|dc|run|stream");
+}
+
+static void CLI_CmdDacRate(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
+{
+    (void)argc;
+    (void)argv;
+    uint32_t before = DAC_APP_GetDmaFullCount();
+    HAL_Delay(1000);
+    uint32_t after  = DAC_APP_GetDmaFullCount();
+    uint32_t delta  = after - before;
+    (void)my_printf(huart,
+        "[DAC-RATE] dma_full_callbacks_per_sec=%lu (= DAC output Hz)\r\n",
+        (unsigned long)delta);
+}
+
+static void CLI_CmdAdcRate(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
+{
+    (void)argc;
+    (void)argv;
+    uint32_t half_before = ADC_APP_GetHalfEventCount();
+    uint32_t full_before = ADC_APP_GetFullEventCount();
+    HAL_Delay(1000);
+    uint32_t half_after  = ADC_APP_GetHalfEventCount();
+    uint32_t full_after  = ADC_APP_GetFullEventCount();
+    // 每个 half/full 事件对应 ADC_APP_BLOCK_SAMPLES (=128) 个样本
+    uint32_t total_events = (half_after - half_before) + (full_after - full_before);
+    uint32_t actual_sps   = total_events * 128U;
+    uint32_t claimed_sps  = ADC_APP_GetSampleRateHz();
+    (void)my_printf(huart,
+        "[ADC-RATE] events/sec=%lu actual_sps=%lu claimed_sps=%lu ratio=%.3f\r\n",
+        (unsigned long)total_events,
+        (unsigned long)actual_sps,
+        (unsigned long)claimed_sps,
+        (claimed_sps > 0U) ? ((double)actual_sps / (double)claimed_sps) : 0.0);
+}
+
+static void CLI_CmdAdcDump(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
+{
+    (void)argc;
+    (void)argv;
+    uint32_t psc = htim2.Instance->PSC;
+    uint32_t arr = htim2.Instance->ARR;
+    uint32_t cnt = htim2.Instance->CNT;
+    uint32_t cr1 = htim2.Instance->CR1;
+    uint32_t cr2 = htim2.Instance->CR2;
+    uint32_t adc_cr  = hadc1.Instance->CR;
+    uint32_t adc_cfgr = hadc1.Instance->CFGR;
+    (void)my_printf(huart,
+        "[TIM2] PSC=%lu ARR=%lu CNT=%lu CR1=0x%lx CR2=0x%lx\r\n",
+        (unsigned long)psc, (unsigned long)arr, (unsigned long)cnt,
+        (unsigned long)cr1, (unsigned long)cr2);
+    (void)my_printf(huart,
+        "[ADC1] CR=0x%lx CFGR=0x%lx (EXTSEL=bits[9:5] of CFGR)\r\n",
+        (unsigned long)adc_cr, (unsigned long)adc_cfgr);
+    // 用当前硬件 PSC/ARR 估算实际触发频率（假定 timer_clk = HCLK）
+    uint32_t timer_clk = HAL_RCC_GetHCLKFreq();
+    if ((psc + 1U) * (arr + 1U) > 0U) {
+        uint32_t hw_rate = (uint32_t)((uint64_t)timer_clk / ((uint64_t)(psc + 1U) * (uint64_t)(arr + 1U)));
+        (void)my_printf(huart,
+            "[ADC-CALC] timer_clk=%lu hw_trigger_rate=%lu Hz\r\n",
+            (unsigned long)timer_clk, (unsigned long)hw_rate);
+    }
 }
 
 void CLI_Init(UART_HandleTypeDef *huart)
