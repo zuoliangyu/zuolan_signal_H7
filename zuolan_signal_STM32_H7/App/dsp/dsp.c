@@ -27,6 +27,11 @@ void DSP_Init(void)
     s_dsp_inited = 1U;
 }
 
+uint8_t DSP_IsInited(void)
+{
+    return s_dsp_inited;
+}
+
 static arm_rfft_fast_instance_f32 *DSP_PickInstance(dsp_fft_size_t size)
 {
     switch (size) {
@@ -99,10 +104,13 @@ void DSP_SelfTest(UART_HandleTypeDef *huart)
     DSP_FindPeak(s_selftest_mag, DSP_SELFTEST_LEN / 2U, &peak_bin, &peak_val);
 
     // 4) 输出
+    const float32_t bin_hz = DSP_SELFTEST_FS_HZ / (float32_t)DSP_SELFTEST_LEN;
     (void)my_printf(huart,
-        "[FFT] len=%u Fs=%u Hz f0=%u Hz -> peak_bin=%lu (expect 128)\r\n",
+        "[FFT] len=%u Fs=%.1f Hz f0=%.1f Hz -> peak_bin=%lu peak_freq=%.2f Hz mag=%.2f (expect bin=128)\r\n",
         (unsigned)DSP_SELFTEST_LEN,
-        (unsigned)DSP_SELFTEST_FS_HZ,
-        (unsigned)DSP_SELFTEST_TONE_HZ,
-        (unsigned long)peak_bin);
+        (double)DSP_SELFTEST_FS_HZ,
+        (double)DSP_SELFTEST_TONE_HZ,
+        (unsigned long)peak_bin,
+        (double)((float32_t)peak_bin * bin_hz),
+        (double)peak_val);
 }

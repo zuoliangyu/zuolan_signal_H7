@@ -9,6 +9,7 @@
 #include "adc_app.h"
 #include "cli.h"
 #include "dac_app.h"
+#include "dsp.h"
 #include "led.h"
 
 #define UART_PROC_TX_CHUNK_SIZE 64U
@@ -264,7 +265,10 @@ static void UART_PrintBootStatus(void)
                     (ADC_APP_GetStreamEnabled() != 0U) ? "on" : "off",
                     (unsigned int)ADC_APP_GetStreamIntervalMs(),
                     (ADC_APP_GetBlockStreamEnabled() != 0U) ? "on" : "off");
-    (void)my_printf(&huart1, "Commands: help, echo, led, dac, adc\r\n");
+    (void)my_printf(&huart1,
+                    "DSP: state=%s, lib=CMSIS-DSP V1.10, rfft_sizes=256/512/1024, float=hard\r\n",
+                    (DSP_IsInited() != 0U) ? "ready" : "error");
+    (void)my_printf(&huart1, "Commands: help, echo, led, dac, adc, fft\r\n");
     (void)my_printf(&huart1, "\r\n");
 }
 

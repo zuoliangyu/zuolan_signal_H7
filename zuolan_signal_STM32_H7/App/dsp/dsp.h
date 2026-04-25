@@ -18,6 +18,9 @@ typedef enum {
 
 void DSP_Init(void);
 
+// 是否已完成初始化（启动摘要、健康检查使用）
+uint8_t DSP_IsInited(void);
+
 // 实数 FFT 取模值。in[size]、scratch[size]、mag[size/2] 全部由调用方提供。
 // 返回 0 成功，-1 size 不支持或参数非法。bin0 已置 0。
 int DSP_RFFT_Magnitude(dsp_fft_size_t size,
