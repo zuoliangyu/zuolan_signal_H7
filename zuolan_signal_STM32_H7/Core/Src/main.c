@@ -27,11 +27,16 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "adc_app.h"
-#include "dac_app.h"
-#include "led.h"
-#include "scheduler.h"
-#include "uart.h"
+// === FFT 验证期间，App 层暂时不引入 ===
+// #include "adc_app.h"
+// #include "dac_app.h"
+// #include "led.h"
+// #include "scheduler.h"
+// #include "uart.h"
+
+#include "arm_math.h"
+#include <stdio.h>
+#include <string.h>
 
 /* USER CODE END Includes */
 
@@ -53,9 +58,20 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-static task_handle_t adc_task_handle = INVALID_TASK_HANDLE;
-static task_handle_t led_task_handle = INVALID_TASK_HANDLE;
-static task_handle_t uart_task_handle = INVALID_TASK_HANDLE;
+// static task_handle_t adc_task_handle = INVALID_TASK_HANDLE;
+// static task_handle_t led_task_handle = INVALID_TASK_HANDLE;
+// static task_handle_t uart_task_handle = INVALID_TASK_HANDLE;
+
+// === FFT 验证缓冲 ===
+#define FFT_LEN          1024U
+#define FFT_FS_HZ        8000.0f   // 假定采样率
+#define FFT_TONE_HZ      1000.0f   // 测试正弦频率
+// 期望峰值 bin = FFT_TONE_HZ / (FFT_FS_HZ / FFT_LEN) = 1000 / 7.8125 = 128
+
+static float32_t s_fft_in[FFT_LEN];
+static float32_t s_fft_out[FFT_LEN];
+static float32_t s_fft_mag[FFT_LEN / 2U];
+static arm_rfft_fast_instance_f32 s_rfft;
 
 /* USER CODE END PV */
 
@@ -120,24 +136,60 @@ int main(void)
   MX_DAC1_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-  ADC_APP_Init();
-  DAC_APP_Init();
-  Scheduler_Init();
-  LED_Init();
-  UART_Init();
-  adc_task_handle = Scheduler_AddTask(adc_proc, 1U, HAL_GetTick(), "adc");
-  led_task_handle = Scheduler_AddTask(led_proc, 1U, HAL_GetTick(), "led");
-  uart_task_handle = Scheduler_AddTask(uart_proc, 1U, HAL_GetTick(), "uart");
-  (void)adc_task_handle;
-  (void)led_task_handle;
-  (void)uart_task_handle;
+  // === App 层初始化暂时屏蔽，FFT 单独验证 ===
+  // ADC_APP_Init();
+  // DAC_APP_Init();
+  // Scheduler_Init();
+  // LED_Init();
+  // UART_Init();
+  // adc_task_handle = Scheduler_AddTask(adc_proc, 1U, HAL_GetTick(), "adc");
+  // led_task_handle = Scheduler_AddTask(led_proc, 1U, HAL_GetTick(), "led");
+  // uart_task_handle = Scheduler_AddTask(uart_proc, 1U, HAL_GetTick(), "uart");
+
+  // === FFT 验证 ===
+  {
+    // 1) 生成 1024 点正弦：Fs=8 kHz，f0=1 kHz，期望峰值在 bin=128
+    const float32_t two_pi_f0_over_fs =
+        2.0f * 3.14159265358979323846f * FFT_TONE_HZ / FFT_FS_HZ;
+    for (uint32_t i = 0U; i < FFT_LEN; i++) {
+      s_fft_in[i] = arm_sin_f32(two_pi_f0_over_fs * (float32_t)i);
+    }
+
+    // 2) RFFT 初始化 + 执行（实数→复数打包输出）
+    arm_status st = arm_rfft_fast_init_f32(&s_rfft, FFT_LEN);
+    if (st != ARM_MATH_SUCCESS) {
+      const char *err = "\r\nFFT init failed\r\n";
+      HAL_UART_Transmit(&huart1, (uint8_t *)err, (uint16_t)strlen(err), 1000U);
+    }
+    arm_rfft_fast_f32(&s_rfft, s_fft_in, s_fft_out, 0);
+
+    // 3) 复数模值（s_fft_out 当作 N/2 对 {re,im} 处理，bin0 是 DC/Nyquist 打包，忽略）
+    arm_cmplx_mag_f32(s_fft_out, s_fft_mag, FFT_LEN / 2U);
+    s_fft_mag[0] = 0.0f;
+
+    // 4) 找峰值
+    float32_t peak_val = 0.0f;
+    uint32_t  peak_idx = 0U;
+    arm_max_f32(s_fft_mag, FFT_LEN / 2U, &peak_val, &peak_idx);
+
+    // 5) 输出（USART1 @ CubeMX 默认波特率）
+    char buf[128];
+    int n = snprintf(buf, sizeof(buf),
+                     "\r\n[FFT] len=%u Fs=%.0f f0=%.0f -> peak_bin=%lu mag=%.2f (expect 128)\r\n",
+                     (unsigned)FFT_LEN, (double)FFT_FS_HZ, (double)FFT_TONE_HZ,
+                     (unsigned long)peak_idx, (double)peak_val);
+    if (n > 0) {
+      HAL_UART_Transmit(&huart1, (uint8_t *)buf, (uint16_t)n, 1000U);
+    }
+  }
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1) {
-    Scheduler_Run();
+    // Scheduler_Run();
+    HAL_Delay(1000);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
