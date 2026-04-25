@@ -206,6 +206,15 @@ static void ADC_APP_ResetRuntimeState(void)
     ADC_APP_ExitCritical(primask);
 }
 
+void ADC_APP_ClearEventStats(void)
+{
+    uint32_t primask = ADC_APP_EnterCritical();
+    s_adc_state.half_event_count = 0U;
+    s_adc_state.full_event_count = 0U;
+    s_adc_state.dropped_block_count = 0U;
+    ADC_APP_ExitCritical(primask);
+}
+
 static void ADC_APP_QueueBlock(const uint16_t *source, adc_app_block_part_t part)
 {
     adc_app_block_t *block;

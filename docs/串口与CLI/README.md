@@ -6,7 +6,8 @@
 
 1. [UART接收调试与CLI运行说明.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/串口与CLI/UART接收调试与CLI运行说明.md)
 2. [CLI命令解析与扩展说明.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/串口与CLI/CLI命令解析与扩展说明.md)
-3. 如需排查历史问题，再回根目录看纠错文档
+3. [UART异步发送与DMA架构.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/串口与CLI/UART异步发送与DMA架构.md)
+4. 如需排查历史问题，再回根目录看纠错文档
 
 ## 2. 当前工程状态
 
@@ -50,6 +51,15 @@
 - 命令表结构
 - 当前命令如何扩展
 - 新增命令时推荐改哪里
+
+### [UART异步发送与DMA架构.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/串口与CLI/UART异步发送与DMA架构.md)
+
+重点说明：
+
+- `my_printf` 从同步阻塞改为 DMA + 4KB 环形缓冲的动机和架构
+- 921600 baud + DMA TX 的 CubeMX 配置步骤
+- 实时流水线性能数据对比（升级前后 22.5× 帧率提升）
+- 相关 CLI 工具（`uarttx` `report` `clearstats`）
 
 ## 4. 相关问题记录
 

@@ -43,6 +43,26 @@ typedef struct
 static uint8_t s_uart1_dma_rx_buf[UART_DMA_RX_BUF_SIZE] UART_DMA_ALIGN UART_DMA_SECTION;
 static uint8_t s_uart2_dma_rx_buf[UART_DMA_RX_BUF_SIZE] UART_DMA_ALIGN UART_DMA_SECTION;
 
+/* 异步 TX：每个端口一个环形缓冲。CPU 写 head，DMA 读 tail。
+   buf 必须放在 DMA 可达 RAM；head/tail/busy/inflight/dropped 是普通 .bss。 */
+static uint8_t s_uart1_tx_buf[UART_TX_BUF_SIZE] UART_DMA_ALIGN UART_DMA_SECTION;
+static uint8_t s_uart2_tx_buf[UART_TX_BUF_SIZE] UART_DMA_ALIGN UART_DMA_SECTION;
+
+typedef struct
+{
+    uint8_t  *buf;
+    volatile uint16_t head;       // 写位置
+    volatile uint16_t tail;       // DMA 已完成读取位置
+    volatile uint16_t inflight;   // 当前 DMA 正在传输的字节数
+    volatile uint8_t  busy;       // 0=空闲，1=DMA 正在发
+    volatile uint32_t dropped;    // 累计被丢弃的字节
+} uart_tx_ring_t;
+
+static uart_tx_ring_t s_tx_rings[UART_PORT_COUNT] = {
+    { .buf = s_uart1_tx_buf },
+    { .buf = s_uart2_tx_buf },
+};
+
 static uart_app_port_t s_uart_ports[UART_PORT_COUNT] = {
     {
         .name = "USART1",
@@ -67,6 +87,84 @@ static uint32_t UART_EnterCritical(void)
 static void UART_ExitCritical(uint32_t primask)
 {
     __set_PRIMASK(primask);
+}
+
+static uart_tx_ring_t *uart_tx_ring_for(UART_HandleTypeDef *huart)
+{
+    if (huart == &huart1) { return &s_tx_rings[UART_PORT_1]; }
+    if (huart == &huart2) { return &s_tx_rings[UART_PORT_2]; }
+    return NULL;
+}
+
+// 必须在 IRQ 关闭的临界区中调用。如果环形空或 DMA 正忙，直接返回。
+static void uart_tx_kick_locked(uart_tx_ring_t *ring, UART_HandleTypeDef *huart)
+{
+    if ((ring->busy != 0U) || (ring->head == ring->tail)) {
+        return;
+    }
+    uint16_t tail  = ring->tail;
+    uint16_t head  = ring->head;
+    uint16_t chunk = (head > tail) ? (uint16_t)(head - tail)
+                                   : (uint16_t)(UART_TX_BUF_SIZE - tail);
+    ring->busy     = 1U;
+    ring->inflight = chunk;
+    (void)HAL_UART_Transmit_DMA(huart, &ring->buf[tail], chunk);
+}
+
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+{
+    uart_tx_ring_t *ring = uart_tx_ring_for(huart);
+    if (ring == NULL) { return; }
+    ring->tail     = (uint16_t)((ring->tail + ring->inflight) % UART_TX_BUF_SIZE);
+    ring->inflight = 0U;
+    ring->busy     = 0U;
+    // 还有数据就接力下一段（仍在 ISR 上下文，但 kick 函数本身是幂等的）
+    uart_tx_kick_locked(ring, huart);
+}
+
+int UART_WriteAsync(UART_HandleTypeDef *huart, const uint8_t *data, uint16_t length)
+{
+    if ((huart == NULL) || (data == NULL) || (length == 0U)) { return 0; }
+    uart_tx_ring_t *ring = uart_tx_ring_for(huart);
+    if (ring == NULL)
+    {
+        (void)HAL_UART_Transmit(huart, (uint8_t *)data, length, 0xFFFFU);
+        return (int)length;
+    }
+    uint32_t primask = UART_EnterCritical();
+    int pushed = 0;
+    for (uint16_t i = 0U; i < length; i++)
+    {
+        uint16_t next_head = (uint16_t)((ring->head + 1U) & (UART_TX_BUF_SIZE - 1U));
+        if (next_head == ring->tail)
+        {
+            ring->dropped += (uint32_t)(length - i);
+            break;
+        }
+        ring->buf[ring->head] = data[i];
+        ring->head = next_head;
+        pushed++;
+    }
+    uart_tx_kick_locked(ring, huart);
+    UART_ExitCritical(primask);
+    return pushed;
+}
+
+uint32_t UART_GetTxDroppedBytes(uart_port_id_t port)
+{
+    if (port >= UART_PORT_COUNT) { return 0U; }
+    return s_tx_rings[port].dropped;
+}
+
+uint32_t UART_GetTxRingFreeBytes(uart_port_id_t port)
+{
+    if (port >= UART_PORT_COUNT) { return 0U; }
+    uart_tx_ring_t *ring = &s_tx_rings[port];
+    uint16_t head = ring->head;
+    uint16_t tail = ring->tail;
+    uint16_t used = (uint16_t)((head - tail) & (UART_TX_BUF_SIZE - 1U));
+    // 这只是粗略值，head/tail 可能在读取间被 ISR 修改，仅作监控用
+    return (uint32_t)(UART_TX_BUF_SIZE - 1U - used);
 }
 
 static uart_app_port_t *UART_FindPort(UART_HandleTypeDef *huart)
@@ -305,12 +403,38 @@ int my_printf(UART_HandleTypeDef *huart, const char *format, ...)
         len = (int)sizeof(buffer) - 1;
     }
 
-    if ((huart != NULL) && (len > 0))
+    if ((huart == NULL) || (len <= 0))
     {
-        (void)HAL_UART_Transmit(huart, (uint8_t *)buffer, (uint16_t)len, 0xFFFFU);
+        return len;
     }
 
-    return len;
+    uart_tx_ring_t *ring = uart_tx_ring_for(huart);
+    if (ring == NULL)
+    {
+        // 不认识的端口，回退到阻塞模式
+        (void)HAL_UART_Transmit(huart, (uint8_t *)buffer, (uint16_t)len, 0xFFFFU);
+        return len;
+    }
+
+    // 把数据塞进环形缓冲；满了就丢，不阻塞调用方
+    uint32_t primask = UART_EnterCritical();
+    int pushed = 0;
+    for (int i = 0; i < len; i++)
+    {
+        uint16_t next_head = (uint16_t)((ring->head + 1U) & (UART_TX_BUF_SIZE - 1U));
+        if (next_head == ring->tail)
+        {
+            ring->dropped += (uint32_t)(len - i);
+            break;
+        }
+        ring->buf[ring->head] = (uint8_t)buffer[i];
+        ring->head = next_head;
+        pushed++;
+    }
+    uart_tx_kick_locked(ring, huart);
+    UART_ExitCritical(primask);
+
+    return pushed;
 }
 
 void uart_proc(void)

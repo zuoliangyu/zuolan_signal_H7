@@ -39,6 +39,9 @@ void DSP_Pipeline_SetDcRemove(uint8_t enabled);
 uint8_t DSP_Pipeline_GetDcRemove(void);
 int  DSP_Pipeline_RunOneshot(void);
 int  DSP_Pipeline_SetStream(uint8_t enabled);
+// 输出降频：每 N 帧打印一次（N=1 表示每帧都打），N 范围 [1, 1000]
+int  DSP_Pipeline_SetOutputRate(uint16_t every_n_frames);
+uint16_t DSP_Pipeline_GetOutputRate(void);
 
 #ifdef __cplusplus
 }

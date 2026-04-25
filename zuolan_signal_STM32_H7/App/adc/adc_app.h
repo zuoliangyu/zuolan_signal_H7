@@ -51,6 +51,7 @@ uint8_t ADC_APP_GetBlockStreamEnabled(void);
 uint32_t ADC_APP_GetDroppedBlockCount(void);
 uint32_t ADC_APP_GetHalfEventCount(void);
 uint32_t ADC_APP_GetFullEventCount(void);
+void ADC_APP_ClearEventStats(void);
 
 uint32_t ADC_APP_GetLatestFrameSeq(void);
 void ADC_APP_CopyLatestFrame(uint16_t *buffer, uint16_t max_samples);

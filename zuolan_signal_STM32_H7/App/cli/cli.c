@@ -42,7 +42,7 @@ static void CLI_Write(UART_HandleTypeDef *huart, const char *text)
         return;
     }
 
-    (void)HAL_UART_Transmit(huart, (uint8_t *)text, (uint16_t)strlen(text), 0xFFFFU);
+    (void)UART_WriteAsync(huart, (const uint8_t *)text, (uint16_t)strlen(text));
 }
 
 static void CLI_WriteLine(UART_HandleTypeDef *huart, const char *text)
@@ -71,19 +71,25 @@ static void CLI_CmdPipeline(UART_HandleTypeDef *huart, uint8_t argc, char *argv[
 static void CLI_CmdDacRate(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 static void CLI_CmdAdcRate(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 static void CLI_CmdAdcDump(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
+static void CLI_CmdUartTx(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
+static void CLI_CmdReport(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
+static void CLI_CmdClearStats(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 
 static const cli_command_t s_cli_commands[] = {
     {"help", "List all commands", CLI_CmdHelp},
     {"echo", "Echo parameters: echo <text>", CLI_CmdEcho},
     {"led", "Control LED: led on/off/toggle/blink", CLI_CmdLed},
     {"adc", "ADC: get/raw/mv/avg/rate/frame/stream/block", CLI_CmdAdc},
-    {"dac", "Control DAC: dac get/mode/amp/offset/freq/duty/start/stop", CLI_CmdDac},
+    {"dac", "Control DAC: dac get/mode/amp/offset/freq/duty/start/stop/test", CLI_CmdDac},
     {"fft", "FFT self-test: fft selftest", CLI_CmdFft},
     {"filter", "Filter self-test: filter selftest", CLI_CmdFilter},
-    {"pipeline", "ADC->filter->FFT pipeline: pipeline status/filter/fft/dc/run/stream", CLI_CmdPipeline},
+    {"pipeline", "ADC->filter->FFT pipeline: pipeline status/filter/fft/dc/rate/run/stream", CLI_CmdPipeline},
     {"dacrate", "Measure DAC actual output Hz over 1 second", CLI_CmdDacRate},
     {"adcrate", "Measure ADC actual sample rate over 1 second", CLI_CmdAdcRate},
     {"adcdump", "Dump TIM2 register state for ADC trigger debug", CLI_CmdAdcDump},
+    {"uarttx", "Show UART async TX ring buffer stats", CLI_CmdUartTx},
+    {"report", "Pause pipeline and dump all health metrics in one go", CLI_CmdReport},
+    {"clearstats", "Reset ADC event/drop counters and DAC DMA counter", CLI_CmdClearStats},
 };
 
 static uint8_t CLI_Tokenize(char *line, char *argv[], uint8_t max_tokens)
@@ -286,6 +292,20 @@ static void CLI_CmdDac(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
         CLI_WriteLine(huart, "  dac duty <0..100>- set square-wave duty percent");
         CLI_WriteLine(huart, "  dac duty ?       - show square-wave duty percent");
         CLI_WriteLine(huart, "  dac start/stop   - start or stop output");
+        CLI_WriteLine(huart, "  dac test         - quick: 1V/1.65V/1kHz sine + start (pipeline test preset)");
+        return;
+    }
+
+    if (strcmp(argv[1], "test") == 0)
+    {
+        DAC_APP_Stop();
+        (void)DAC_APP_SetAmpMv(1000U);
+        (void)DAC_APP_SetOffsetMv(1650U);
+        (void)DAC_APP_SetFreqHz(1000U);
+        DAC_APP_SetMode(DAC_APP_MODE_SINE);
+        DAC_APP_Start();
+        (void)my_printf(huart,
+            "DAC test preset applied: sine 1 kHz, amp=1000 mV, offset=1650 mV, started\r\n");
         return;
     }
 
@@ -786,7 +806,7 @@ static void CLI_CmdPipeline(UART_HandleTypeDef *huart, uint8_t argc, char *argv[
 {
     if (argc < 2U)
     {
-        CLI_WriteLine(huart, "Usage: pipeline status|filter|fft|dc|run|stream");
+        CLI_WriteLine(huart, "Usage: pipeline status|filter|fft|dc|rate|run|stream");
         return;
     }
 
@@ -828,6 +848,25 @@ static void CLI_CmdPipeline(UART_HandleTypeDef *huart, uint8_t argc, char *argv[
             return;
         }
         (void)my_printf(huart, "fft -> %lu\r\n", len);
+        return;
+    }
+
+    if (strcmp(argv[1], "rate") == 0)
+    {
+        if ((argc < 3U) || (strcmp(argv[2], "?") == 0))
+        {
+            (void)my_printf(huart, "rate = %u (every N frames printed; 1=every frame)\r\n",
+                            (unsigned)DSP_Pipeline_GetOutputRate());
+            return;
+        }
+        char *end_ptr;
+        unsigned long n = strtoul(argv[2], &end_ptr, 10);
+        if ((*end_ptr != '\0') || (DSP_Pipeline_SetOutputRate((uint16_t)n) != 0))
+        {
+            CLI_WriteLine(huart, "Usage: pipeline rate <1..1000>|?");
+            return;
+        }
+        (void)my_printf(huart, "rate -> %lu\r\n", n);
         return;
     }
 
@@ -884,7 +923,7 @@ static void CLI_CmdPipeline(UART_HandleTypeDef *huart, uint8_t argc, char *argv[
         return;
     }
 
-    CLI_WriteLine(huart, "Usage: pipeline status|filter|fft|dc|run|stream");
+    CLI_WriteLine(huart, "Usage: pipeline status|filter|fft|dc|rate|run|stream");
 }
 
 static void CLI_CmdDacRate(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
@@ -949,6 +988,58 @@ static void CLI_CmdAdcDump(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]
     }
 }
 
+static void CLI_CmdUartTx(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
+{
+    (void)argc;
+    (void)argv;
+    (void)my_printf(huart,
+        "[UART-TX] USART1 dropped=%lu free=%lu/%u USART2 dropped=%lu free=%lu/%u\r\n",
+        (unsigned long)UART_GetTxDroppedBytes(UART_PORT_1),
+        (unsigned long)UART_GetTxRingFreeBytes(UART_PORT_1),
+        (unsigned)UART_TX_BUF_SIZE,
+        (unsigned long)UART_GetTxDroppedBytes(UART_PORT_2),
+        (unsigned long)UART_GetTxRingFreeBytes(UART_PORT_2),
+        (unsigned)UART_TX_BUF_SIZE);
+}
+
+static void CLI_CmdReport(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
+{
+    (void)argc;
+    (void)argv;
+    // 1) 暂停 pipeline，让串口安静
+    (void)DSP_Pipeline_SetStream(0U);
+    // 等待 ~50 ms 让 TX ring 排空
+    HAL_Delay(50);
+    // 2) 一次性打印所有健康指标
+    CLI_WriteLine(huart, "=== HEALTH REPORT ===");
+    DSP_Pipeline_PrintStatus(huart);
+    (void)my_printf(huart,
+        "[ADC] sample_rate=%lu Hz half=%lu full=%lu dropped=%lu queued=%lu\r\n",
+        (unsigned long)ADC_APP_GetSampleRateHz(),
+        (unsigned long)ADC_APP_GetHalfEventCount(),
+        (unsigned long)ADC_APP_GetFullEventCount(),
+        (unsigned long)ADC_APP_GetDroppedBlockCount(),
+        (unsigned long)(ADC_APP_GetHalfEventCount() + ADC_APP_GetFullEventCount() - ADC_APP_GetDroppedBlockCount()));
+    (void)my_printf(huart,
+        "[UART-TX] USART1 dropped=%lu free=%lu/%u\r\n",
+        (unsigned long)UART_GetTxDroppedBytes(UART_PORT_1),
+        (unsigned long)UART_GetTxRingFreeBytes(UART_PORT_1),
+        (unsigned)UART_TX_BUF_SIZE);
+    (void)my_printf(huart,
+        "[DAC] freq=%lu Hz dma_full_cb_count=%lu\r\n",
+        (unsigned long)DAC_APP_GetFreqHz(),
+        (unsigned long)DAC_APP_GetDmaFullCount());
+    CLI_WriteLine(huart, "=== END REPORT ===");
+}
+
+static void CLI_CmdClearStats(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
+{
+    (void)argc;
+    (void)argv;
+    ADC_APP_ClearEventStats();
+    CLI_WriteLine(huart, "ADC event stats cleared (half/full/dropped = 0)");
+}
+
 void CLI_Init(UART_HandleTypeDef *huart)
 {
     s_cli.huart = huart;
@@ -1007,7 +1098,7 @@ void CLI_InputBuffer(UART_HandleTypeDef *huart, const uint8_t *data, uint16_t le
             s_cli.line[s_cli.length++] = ch;
             if (s_cli.echo != 0U)
             {
-                (void)HAL_UART_Transmit(huart, (uint8_t *)&ch, 1U, 0xFFFFU);
+                (void)UART_WriteAsync(huart, (const uint8_t *)&ch, 1U);
             }
         }
         else

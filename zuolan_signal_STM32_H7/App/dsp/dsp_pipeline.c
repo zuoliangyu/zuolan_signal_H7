@@ -32,6 +32,7 @@ static struct {
     uint8_t           dc_remove;
     uint16_t          acc_count;
     uint32_t          frame_seq;
+    uint16_t          output_rate;     // 每 N 帧打印一次
     UART_HandleTypeDef *out_huart;
 
     // 算法实例 + 状态缓冲
@@ -180,16 +181,23 @@ static void pipeline_emit_frame(void)
     const float32_t peak_hz = (float32_t)peak_bin * bin_hz;
 
     s_pl.frame_seq++;
-    (void)my_printf(s_pl.out_huart,
-        "[PIPELINE] seq=%lu filter=%s fft=%u fs=%lu Hz frame_mean=%.1f peak_bin=%lu peak_freq=%.2f Hz mag=%.2f\r\n",
-        (unsigned long)s_pl.frame_seq,
-        pipeline_filter_name(s_pl.filter),
-        (unsigned)s_pl.fft_size,
-        (unsigned long)fs,
-        (double)frame_mean,
-        (unsigned long)peak_bin,
-        (double)peak_hz,
-        (double)peak_val);
+
+    // 输出降频：仅每 output_rate 帧打印一次（oneshot 模式总是打）
+    uint8_t should_print = (s_pl.mode == PIPELINE_MODE_ONESHOT) ||
+                           (s_pl.output_rate <= 1U) ||
+                           ((s_pl.frame_seq % (uint32_t)s_pl.output_rate) == 0U);
+    if (should_print) {
+        (void)my_printf(s_pl.out_huart,
+            "[PIPELINE] seq=%lu filter=%s fft=%u fs=%lu Hz frame_mean=%.1f peak_bin=%lu peak_freq=%.2f Hz mag=%.2f\r\n",
+            (unsigned long)s_pl.frame_seq,
+            pipeline_filter_name(s_pl.filter),
+            (unsigned)s_pl.fft_size,
+            (unsigned long)fs,
+            (double)frame_mean,
+            (unsigned long)peak_bin,
+            (double)peak_hz,
+            (double)peak_val);
+    }
 
     s_pl.acc_count = 0U;
 }
@@ -201,11 +209,12 @@ static void pipeline_emit_frame(void)
 void DSP_Pipeline_Init(UART_HandleTypeDef *out_huart)
 {
     (void)memset(&s_pl, 0, sizeof(s_pl));
-    s_pl.mode      = PIPELINE_MODE_IDLE;
-    s_pl.filter    = PIPELINE_FILTER_NONE;
-    s_pl.fft_size  = DSP_FFT_1024;
-    s_pl.dc_remove = 1U;
-    s_pl.out_huart = out_huart;
+    s_pl.mode        = PIPELINE_MODE_IDLE;
+    s_pl.filter      = PIPELINE_FILTER_NONE;
+    s_pl.fft_size    = DSP_FFT_1024;
+    s_pl.dc_remove   = 1U;
+    s_pl.output_rate = 1U;
+    s_pl.out_huart   = out_huart;
     pipeline_reload_filter();
 }
 
@@ -243,11 +252,12 @@ void dsp_pipeline_proc(void)
 void DSP_Pipeline_PrintStatus(UART_HandleTypeDef *huart)
 {
     (void)my_printf(huart,
-        "[PIPELINE] mode=%s filter=%s fft=%u dc=%s acc=%u/%u seq=%lu fs=%lu Hz\r\n",
+        "[PIPELINE] mode=%s filter=%s fft=%u dc=%s rate=%u acc=%u/%u seq=%lu fs=%lu Hz\r\n",
         pipeline_mode_name(s_pl.mode),
         pipeline_filter_name(s_pl.filter),
         (unsigned)s_pl.fft_size,
         (s_pl.dc_remove != 0U) ? "on" : "off",
+        (unsigned)s_pl.output_rate,
         (unsigned)s_pl.acc_count,
         (unsigned)s_pl.fft_size,
         (unsigned long)s_pl.frame_seq,
@@ -314,6 +324,20 @@ int DSP_Pipeline_RunOneshot(void)
     s_pl.acc_count = 0U;
     s_pl.mode      = PIPELINE_MODE_ONESHOT;
     return 0;
+}
+
+int DSP_Pipeline_SetOutputRate(uint16_t every_n_frames)
+{
+    if ((every_n_frames == 0U) || (every_n_frames > 1000U)) {
+        return -1;
+    }
+    s_pl.output_rate = every_n_frames;
+    return 0;
+}
+
+uint16_t DSP_Pipeline_GetOutputRate(void)
+{
+    return s_pl.output_rate;
 }
 
 int DSP_Pipeline_SetStream(uint8_t enabled)
