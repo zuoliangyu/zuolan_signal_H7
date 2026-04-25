@@ -83,6 +83,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     App/cli/cli.c
     App/adc/adc_app.c
     App/dac/dac_app.c
+    App/dsp/dsp.c
 )
 
 # Add include paths
@@ -93,6 +94,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     App/cli
     App/adc
     App/dac
+    App/dsp
 )
 
 # Add project symbols (macros)

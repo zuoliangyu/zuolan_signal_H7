@@ -6,6 +6,7 @@
 
 #include "adc_app.h"
 #include "dac_app.h"
+#include "dsp.h"
 #include "led.h"
 #include "uart.h"
 
@@ -61,6 +62,7 @@ static void CLI_CmdEcho(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 static void CLI_CmdLed(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 static void CLI_CmdAdc(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 static void CLI_CmdDac(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
+static void CLI_CmdFft(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 
 static const cli_command_t s_cli_commands[] = {
     {"help", "List all commands", CLI_CmdHelp},
@@ -68,6 +70,7 @@ static const cli_command_t s_cli_commands[] = {
     {"led", "Control LED: led on/off/toggle/blink", CLI_CmdLed},
     {"adc", "ADC: get/raw/mv/avg/rate/frame/stream/block", CLI_CmdAdc},
     {"dac", "Control DAC: dac get/mode/amp/offset/freq/duty/start/stop", CLI_CmdDac},
+    {"fft", "FFT self-test: fft selftest", CLI_CmdFft},
 };
 
 static uint8_t CLI_Tokenize(char *line, char *argv[], uint8_t max_tokens)
@@ -742,6 +745,17 @@ static void CLI_CmdAdc(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
     }
 
     CLI_WriteLine(huart, "Usage: adc get|raw|mv|avg|rate <hz|?>|frame|frame ?|stream on [ms]|stream off|stream ?|block on|off|?|next|help");
+}
+
+static void CLI_CmdFft(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
+{
+    if ((argc >= 2U) && (strcmp(argv[1], "selftest") == 0))
+    {
+        DSP_SelfTest(huart);
+        return;
+    }
+
+    CLI_WriteLine(huart, "Usage: fft selftest");
 }
 
 void CLI_Init(UART_HandleTypeDef *huart)
