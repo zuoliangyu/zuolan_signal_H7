@@ -18,7 +18,7 @@
   - `dsp_filters.h` / `dsp_filters.c`：所有滤波器系数的集中存放点
   - `dsp_window.h` / `dsp_window.c`：FFT 前置加窗（公式型 + MATLAB 模板）
   - `dsp_pipeline.h` / `dsp_pipeline.c`：ADC→滤波→加窗→FFT 实时链路
-- CLI：`fft selftest` / `filter selftest` / `pipeline window <name>`（详见根 `App/cli/cli.c`）
+- CLI：`fft selftest` / `filter selftest` / `pipeline window <name>` / `pipeline window test` / `pipeline selftest` / `fftdump`（详见根 `App/cli/cli.c`）
 - 内置示例滤波器：
   - FIR：5 点滑动平均（`dsp_fir_lp_ma5_*`）
   - Biquad：2 阶 Butterworth low-pass，fc=2 kHz @ Fs=8 kHz（`dsp_biquad_lp_butter2_2khz_*`）

@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "adc_app.h"
+#include "dac_app.h"
 #include "dsp.h"
 #include "dsp_filters.h"
 #include "dsp_window.h"
@@ -487,4 +488,145 @@ void DSP_Pipeline_GetLastResult(dsp_pipeline_result_t *out)
     if (out != NULL) {
         *out = s_pl.last_result;
     }
+}
+
+const float32_t *DSP_Pipeline_GetLastMag(uint32_t *out_len)
+{
+    if (out_len != NULL) {
+        *out_len = (uint32_t)s_pl.fft_size / 2U;
+    }
+    return s_fft_mag;
+}
+
+// ============================================================================
+// 端到端硬件回环自检：DAC sine -> PA4 -> 跳线 -> PA0 -> ADC -> pipeline
+// 跟 window test 同款 4 窗对比表风格，但额外自己驱动 DAC 并还原现场。
+// ============================================================================
+int DSP_Pipeline_SelfTest(UART_HandleTypeDef *huart)
+{
+    static const char *const k_windows[] = {"none", "hann", "hamming", "blackman"};
+    static const uint32_t     k_count    = (uint32_t)(sizeof(k_windows) / sizeof(k_windows[0]));
+
+    if (huart == NULL) { return -1; }
+    if (ADC_APP_IsStarted() == 0U) {
+        (void)my_printf(huart, "[PL-SELFTEST] FAIL: ADC not running\r\n");
+        return -1;
+    }
+
+    // 1) 保存 DAC + window 现场
+    const dac_app_mode_t    prev_mode    = DAC_APP_GetMode();
+    const uint16_t          prev_amp     = DAC_APP_GetAmpMv();
+    const uint16_t          prev_offset  = DAC_APP_GetOffsetMv();
+    const uint32_t          prev_freq    = DAC_APP_GetFreqHz();
+    const uint8_t           prev_started = DAC_APP_IsStarted();
+    const dsp_window_type_t prev_window  = s_pl.window;
+
+    // 2) 强制 1 kHz / 1V amp / 1.65V offset sine
+    DAC_APP_Stop();
+    (void)DAC_APP_SetAmpMv(1000U);
+    (void)DAC_APP_SetOffsetMv(1650U);
+    (void)DAC_APP_SetFreqHz(1000U);
+    DAC_APP_SetMode(DAC_APP_MODE_SINE);
+    DAC_APP_Start();
+
+    (void)my_printf(huart,
+        "[PL-SELFTEST] DAC sine 1 kHz / 1000 mV / offset 1650 mV; fft=%u; warmup 2 frames\r\n",
+        (unsigned)s_pl.fft_size);
+
+    // 3) warmup 2 帧
+    (void)DSP_Pipeline_SetWindowByName("none");
+    for (uint32_t w = 0U; w < 2U; w++) {
+        dsp_pipeline_result_t discard;
+        (void)DSP_Pipeline_RunOneshotBlocking(2000U, 1U, &discard);
+    }
+
+    // 4) 4 窗对比测量
+    dsp_pipeline_result_t results[4];
+    (void)memset(results, 0, sizeof(results));
+
+    for (uint32_t i = 0U; i < k_count; i++) {
+        if (DSP_Pipeline_SetWindowByName(k_windows[i]) != 0) { continue; }
+        (void)DSP_Pipeline_RunOneshotBlocking(2000U, 1U, &results[i]);
+    }
+
+    // 5) 还原 DAC + window 现场（不论后面 PASS/FAIL）
+    DAC_APP_Stop();
+    (void)DAC_APP_SetAmpMv(prev_amp);
+    (void)DAC_APP_SetOffsetMv(prev_offset);
+    (void)DAC_APP_SetFreqHz(prev_freq);
+    DAC_APP_SetMode(prev_mode);
+    if (prev_started != 0U) { DAC_APP_Start(); }
+    (void)DSP_Pipeline_SetWindowByName(DSP_Window_Name(prev_window));
+
+    // 6) 期望值
+    if (results[0].valid == 0U) {
+        (void)my_printf(huart, "[PL-SELFTEST] FAIL: baseline (none) frame missing\r\n");
+        return -2;
+    }
+    const uint32_t  fs            = results[0].fs_hz;
+    const float32_t bin_hz        = (float32_t)fs / (float32_t)results[0].fft_size;
+    const uint32_t  expected_bin  = (uint32_t)(1000.0f / bin_hz + 0.5f);
+    // 1000 mV peak / 3300 mV ref * 65535 → A_raw → amp = A_raw * N / 2
+    const float32_t expected_a    = (1000.0f / 3300.0f) * 65535.0f;
+    const float32_t expected_amp  = expected_a * (float32_t)results[0].fft_size / 2.0f;
+    const float32_t amp_none      = (results[0].peak_amp > 1.0f) ? results[0].peak_amp : 1.0f;
+
+    // 7) 打印对比表
+    (void)my_printf(huart,
+        "[PL-SELFTEST] expected: peak_bin=%lu (1000 Hz / %.3f Hz/bin) amp=%.0f\r\n",
+        (unsigned long)expected_bin, (double)bin_hz, (double)expected_amp);
+    (void)my_printf(huart, "\r\n");
+    (void)my_printf(huart,
+        "  window     cgain  peak_bin  peak_freq      mag           amp           amp/none\r\n");
+    (void)my_printf(huart,
+        "  ---------  -----  --------  -------------  ------------  ------------  --------\r\n");
+
+    for (uint32_t i = 0U; i < k_count; i++) {
+        if (results[i].valid == 0U) {
+            (void)my_printf(huart, "  %-9s  (no result)\r\n", k_windows[i]);
+            continue;
+        }
+        (void)my_printf(huart,
+            "  %-9s  %.3f  %8lu  %9.2f Hz  %12.0f  %12.0f  %.3f\r\n",
+            k_windows[i],
+            (double)results[i].cgain,
+            (unsigned long)results[i].peak_bin,
+            (double)results[i].peak_freq_hz,
+            (double)results[i].peak_mag,
+            (double)results[i].peak_amp,
+            (double)(results[i].peak_amp / amp_none));
+    }
+
+    // 8) verdict
+    //   - 每个窗 peak_bin 在 expected ±2
+    //   - 每个窗 amp 在 expected_amp 的 0.7~1.3
+    //   - 加窗 amp 与 none 偏差 < 15%
+    uint8_t pass = 1U;
+    const char *fail_reason = "";
+    for (uint32_t i = 0U; i < k_count; i++) {
+        if (results[i].valid == 0U) { continue; }
+        int32_t db = (int32_t)results[i].peak_bin - (int32_t)expected_bin;
+        if ((db < -2) || (db > 2)) {
+            pass = 0U; fail_reason = "peak_bin shifted from expected"; break;
+        }
+        float32_t ar = results[i].peak_amp / expected_amp;
+        if ((ar < 0.7f) || (ar > 1.3f)) {
+            pass = 0U; fail_reason = "amp deviates from expected (>30%)"; break;
+        }
+        if (i > 0U) {
+            float32_t cr = results[i].peak_amp / amp_none;
+            if ((cr < 0.85f) || (cr > 1.15f)) {
+                pass = 0U; fail_reason = "amp inconsistent across windows (>15%)"; break;
+            }
+        }
+    }
+
+    if (pass != 0U) {
+        (void)my_printf(huart,
+            "  verdict: PASS  (peak_bin within +/-2 of %lu, amp within +/-30%% of expected, cross-window within +/-15%%)\r\n",
+            (unsigned long)expected_bin);
+        return 0;
+    }
+    (void)my_printf(huart, "  verdict: FAIL  (%s)\r\n", fail_reason);
+    return -3;
 }

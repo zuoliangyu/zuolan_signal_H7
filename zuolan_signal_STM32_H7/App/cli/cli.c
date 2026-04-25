@@ -1,6 +1,8 @@
 #include "cli.h"
 
 #include <ctype.h>
+#include <stdarg.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -66,6 +68,7 @@ static void CLI_CmdLed(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 static void CLI_CmdAdc(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 static void CLI_CmdDac(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 static void CLI_CmdFft(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
+static void CLI_CmdFftDump(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 static void CLI_CmdFilter(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 static void CLI_CmdPipeline(UART_HandleTypeDef *huart, uint8_t argc, char *argv[]);
 static void CLI_CmdPipelineWindowTest(UART_HandleTypeDef *huart);
@@ -83,8 +86,9 @@ static const cli_command_t s_cli_commands[] = {
     {"adc", "ADC: get/raw/mv/avg/rate/frame/stream/block", CLI_CmdAdc},
     {"dac", "Control DAC: dac get/mode/amp/offset/freq/duty/start/stop/test", CLI_CmdDac},
     {"fft", "FFT self-test: fft selftest", CLI_CmdFft},
+    {"fftdump", "Dump latest pipeline mag spectrum as CSV (oneshot capture)", CLI_CmdFftDump},
     {"filter", "Filter self-test: filter selftest", CLI_CmdFilter},
-    {"pipeline", "ADC->filter->FFT pipeline: pipeline status/filter/window [test]/fft/dc/rate/run/stream", CLI_CmdPipeline},
+    {"pipeline", "ADC->filter->FFT pipeline: pipeline status/filter/window [test]/fft/dc/rate/run/stream/selftest", CLI_CmdPipeline},
     {"dacrate", "Measure DAC actual output Hz over 1 second", CLI_CmdDacRate},
     {"adcrate", "Measure ADC actual sample rate over 1 second", CLI_CmdAdcRate},
     {"adcdump", "Dump TIM2 register state for ADC trigger debug", CLI_CmdAdcDump},
@@ -792,6 +796,84 @@ static void CLI_CmdFft(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
     CLI_WriteLine(huart, "Usage: fft selftest");
 }
 
+// 同步发送 helper：vsnprintf 到本地 buffer，再 HAL_UART_Transmit 阻塞发送。
+// 绕开 my_printf 的 ring buffer，绝不丢字节。代价：调用方阻塞到字节全部发出。
+// fftdump 是一次性 dump 大量数据，阻塞模式最稳。
+static void cli_fftdump_sync_printf(UART_HandleTypeDef *huart, const char *fmt, ...)
+{
+    char buf[96];
+    va_list args;
+    va_start(args, fmt);
+    int len = vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    if (len <= 0) { return; }
+    if (len >= (int)sizeof(buf)) { len = (int)sizeof(buf) - 1; }
+    (void)HAL_UART_Transmit(huart, (uint8_t *)buf, (uint16_t)len, 0xFFFFU);
+}
+
+// 触发一次 oneshot，把当前 pipeline 配置（filter/window/fft）下的整段 magnitude
+// 谱以 CSV 格式 dump 到串口。每行：bin,freq_hz,mag。
+// 全程用 HAL_UART_Transmit 阻塞同步发送，避免 ring buffer 丢字节。
+// 进入前会先等 TX ring 排空，让前面的异步内容（如命令回显）先发完。
+static void CLI_CmdFftDump(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
+{
+    (void)argc;
+    (void)argv;
+
+    if (ADC_APP_IsStarted() == 0U)
+    {
+        CLI_WriteLine(huart, "ADC not running");
+        return;
+    }
+
+    // 静默触发一帧
+    dsp_pipeline_result_t r;
+    int rc = DSP_Pipeline_RunOneshotBlocking(2000U, 1U, &r);
+    if (rc != 0)
+    {
+        (void)my_printf(huart, "fftdump: oneshot failed rc=%d\r\n", rc);
+        return;
+    }
+
+    uint32_t mag_len = 0U;
+    const float32_t *mag = DSP_Pipeline_GetLastMag(&mag_len);
+    if ((mag == NULL) || (mag_len == 0U))
+    {
+        CLI_WriteLine(huart, "fftdump: no mag buffer");
+        return;
+    }
+
+    const float32_t bin_hz = (float32_t)r.fs_hz / (float32_t)r.fft_size;
+
+    // 切到阻塞同步模式之前先等 TX ring 排空（让命令回显之类的异步内容先发完）。
+    // 否则 HAL_UART_Transmit 会跟正在跑的 DMA 抢 huart->gState。
+    while (UART_GetTxRingFreeBytes(UART_PORT_1) < (UART_TX_BUF_SIZE - 1U))
+    {
+        // busy-wait
+    }
+
+    cli_fftdump_sync_printf(huart,
+        "# fftdump fft=%lu fs=%lu Hz window=%s seq=%lu bin_hz=%.4f peak_bin=%lu peak_freq=%.2f\r\n",
+        (unsigned long)r.fft_size,
+        (unsigned long)r.fs_hz,
+        DSP_Window_Name(r.window),
+        (unsigned long)r.frame_seq,
+        (double)bin_hz,
+        (unsigned long)r.peak_bin,
+        (double)r.peak_freq_hz);
+    cli_fftdump_sync_printf(huart, "bin,freq_hz,mag\r\n");
+
+    for (uint32_t i = 0U; i < mag_len; i++)
+    {
+        cli_fftdump_sync_printf(huart, "%lu,%.2f,%.2f\r\n",
+                                (unsigned long)i,
+                                (double)((float32_t)i * bin_hz),
+                                (double)mag[i]);
+    }
+
+    cli_fftdump_sync_printf(huart, "# fftdump end\r\n");
+}
+
 static void CLI_CmdFilter(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
 {
     if ((argc >= 2U) && (strcmp(argv[1], "selftest") == 0))
@@ -807,7 +889,7 @@ static void CLI_CmdPipeline(UART_HandleTypeDef *huart, uint8_t argc, char *argv[
 {
     if (argc < 2U)
     {
-        CLI_WriteLine(huart, "Usage: pipeline status|filter|window|fft|dc|rate|run|stream");
+        CLI_WriteLine(huart, "Usage: pipeline status|filter|window|fft|dc|rate|run|stream|selftest");
         return;
     }
 
@@ -918,6 +1000,12 @@ static void CLI_CmdPipeline(UART_HandleTypeDef *huart, uint8_t argc, char *argv[
         return;
     }
 
+    if (strcmp(argv[1], "selftest") == 0)
+    {
+        (void)DSP_Pipeline_SelfTest(huart);
+        return;
+    }
+
     if (strcmp(argv[1], "stream") == 0)
     {
         if (argc < 3U)
@@ -945,7 +1033,7 @@ static void CLI_CmdPipeline(UART_HandleTypeDef *huart, uint8_t argc, char *argv[
         return;
     }
 
-    CLI_WriteLine(huart, "Usage: pipeline status|filter|window|fft|dc|rate|run|stream");
+    CLI_WriteLine(huart, "Usage: pipeline status|filter|window|fft|dc|rate|run|stream|selftest");
 }
 
 // 自动测试：依次跑 none/hann/hamming/blackman 各一次 oneshot，

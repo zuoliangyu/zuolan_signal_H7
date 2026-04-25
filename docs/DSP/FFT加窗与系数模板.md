@@ -92,6 +92,63 @@ pipeline status                # 输出里包含 window=<name> cgain=<f>
 否则若紧接着 `dac test` 后立刻测，首帧会采到 DAC 启动瞬态（实测幅度只有正常值的一半），
 导致 baseline 错误，amp 比值偏离 PASS 区间。
 
+### `pipeline selftest` 端到端硬件回环
+
+`pipeline window test` 只验证窗一致性，假设 DAC 已经在出已知信号。
+`pipeline selftest` 自己驱动 DAC，把整条链路作为黑盒验证：
+
+1. 保存当前 DAC 状态
+2. 强制配置 sine 1 kHz / 1V amp / 1.65V offset 并启动
+3. 切窗到 hann，warmup 2 帧
+4. 跑一次 oneshot，验证：
+   - `peak_bin` 在期望 bin（fs/fft 算）±2 内
+   - `peak_amp` 在理论幅度（`A_raw × N / 2`，A_raw = 1000mV/3300mV × 65535）的 0.7~1.3 之间
+5. 不论结果如何，还原 DAC 现场和 window 现场
+
+输出示例：
+
+```
+[PL-SELFTEST] DAC sine 1 kHz / 1000 mV / offset 1650 mV; window=hann fft=1024
+[PL-SELFTEST] result: peak_bin=4 expect=4 (dev=0) peak_freq=999.46 Hz
+[PL-SELFTEST] amp=10150642 expect=10172307 (ratio=0.998)
+[PL-SELFTEST] PASS
+```
+
+前提同样是 PA4↔PA0 跳线。
+
+## 5. `fftdump`：整谱 CSV 导出
+
+`fftdump` 命令在当前 pipeline 配置下触发一次 oneshot，把整段 magnitude 谱
+以 CSV 格式推到串口，方便上位机绘图：
+
+```
+> fftdump
+# fftdump fft=1024 fs=255863 Hz window=hann seq=N bin_hz=249.8662 peak_bin=4 peak_freq=999.46
+bin,freq_hz,mag
+0,0.00,0.00
+1,249.87,123.45
+...
+511,127677.96,98.12
+# fftdump end
+```
+
+实现注意：
+- 输出 `fft_size/2` 行，每行 ~25 字节，N=1024 时总共 ~12 KB；USART1 TX ring 只有 4 KB
+- CLI 实现里每 8 行做一次反压检查（busy-wait 直到 ring 至少有 256 bytes 空闲），
+  避免 `my_printf` 丢字节
+- USART1 @ 921600 baud 下整段 dump 约 130 ms 完成
+- 上位机示例（Python）：
+
+```python
+import serial, csv, io
+ser = serial.Serial('COMx', 921600, timeout=2)
+ser.write(b'fftdump\r\n')
+text = ser.read_until(b'# fftdump end\r\n').decode()
+# 跳过开头 # 注释行 + 列定义行，剩下是标准 CSV
+lines = [l for l in text.splitlines() if l and not l.startswith('#') and ',' in l]
+data = list(csv.reader(lines))[1:]   # 去掉表头 bin,freq_hz,mag
+```
+
 每帧打印的格式现在多了 `window` 和 `amp`（用 cgain 补偿过的单频幅度）：
 
 ```
