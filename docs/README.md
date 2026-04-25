@@ -32,6 +32,7 @@ docs/
 
 - [OpenOCD_CMSIS-DAP_烧录与调试.md](OpenOCD_CMSIS-DAP_烧录与调试.md) —— VS Code + OpenOCD + CMSIS-DAP 烧录调试配置
 - [STM32H7_DMA缓冲区与链接脚本说明.md](STM32H7_DMA缓冲区与链接脚本说明.md) —— H7 上 DMA 缓冲区放置、`.dma_buffer` 段、链接脚本设计
+- [STM32H7_MCU迁移与CubeMX重生成避坑指南.md](STM32H7_MCU迁移与CubeMX重生成避坑指南.md) —— 同家族换型号（V/Z/I/X）完整流程，CubeMX regen 必查清单
 - [基于uwTick的简易调度器说明.md](基于uwTick的简易调度器说明.md) —— 当前轻量调度器的设计与使用
 
 ## 4. 按任务找文档
@@ -59,6 +60,11 @@ docs/
 1. [CubeMX_CORTEX_M7_详解/00_配置页快速结论与当前工程建议.md](CubeMX_CORTEX_M7_详解/00_配置页快速结论与当前工程建议.md)
 2. [STM32H743_信号处理学习路线/03_阶段三_内存_Cache_DMA_MPU.md](STM32H743_信号处理学习路线/03_阶段三_内存_Cache_DMA_MPU.md)
 3. [STM32H7_DMA缓冲区与链接脚本说明.md](STM32H7_DMA缓冲区与链接脚本说明.md)
+
+### 切换 MCU 型号 / 换板
+
+1. [STM32H7_MCU迁移与CubeMX重生成避坑指南.md](STM32H7_MCU迁移与CubeMX重生成避坑指南.md)
+2. [纠错/CubeMX重新生成丢失自定义链接段与printf浮点选项.md](纠错/CubeMX重新生成丢失自定义链接段与printf浮点选项.md)
 
 ### 历史踩坑
 
