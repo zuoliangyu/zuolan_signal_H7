@@ -15,3 +15,6 @@ desktop.ini
 
 # Local test artifacts
 .vscode-test/
+
+# Claude Code local state
+.claude/
