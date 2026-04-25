@@ -84,6 +84,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     App/adc/adc_app.c
     App/dac/dac_app.c
     App/dsp/dsp.c
+    App/dsp/dsp_filters.c
 )
 
 # Add include paths

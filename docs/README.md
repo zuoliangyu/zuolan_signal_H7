@@ -22,6 +22,8 @@
   - `CubeMX -> CORTEX_M7` 配置页的系统理解、启用顺序和常见误区
 - [STM32H743_信号处理学习路线/README.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/STM32H743_信号处理学习路线/README.md)
   - 围绕 `STM32H743` 信号采集、算法、实时处理的阶段化学习路径
+- [DSP/README.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/DSP/README.md)
+  - `App/dsp` 模块、CMSIS-DSP 集成、FFT、FIR/IIR 系数从 MATLAB 导入流程
 
 ### 根目录通用文档
 
