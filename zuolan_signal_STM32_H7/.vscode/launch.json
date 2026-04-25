@@ -4,7 +4,7 @@
         {
             "name": "OpenOCD CMSIS-DAP 调试(Debug, 4MHz)",
             "cwd": "${workspaceFolder}",
-            "executable": "${workspaceFolder}/build/Debug/zuolan_signal_STM32.elf",
+            "executable": "${workspaceFolder}/build/Debug/zuolan_signal_STM32_H7.elf",
             "request": "launch",
             "type": "cortex-debug",
             "servertype": "openocd",
@@ -27,7 +27,7 @@
         {
             "name": "OpenOCD CMSIS-DAP 调试(Debug, 1MHz 兼容模式)",
             "cwd": "${workspaceFolder}",
-            "executable": "${workspaceFolder}/build/Debug/zuolan_signal_STM32.elf",
+            "executable": "${workspaceFolder}/build/Debug/zuolan_signal_STM32_H7.elf",
             "request": "launch",
             "type": "cortex-debug",
             "servertype": "openocd",

@@ -84,7 +84,7 @@ void DSP_SelfTest(UART_HandleTypeDef *huart)
 
     // 1) 生成测试正弦
     const float32_t two_pi_f0_over_fs =
-        2.0f * 3.14159265358979323846f * DSP_SELFTEST_TONE_HZ / DSP_SELFTEST_FS_HZ;
+        2.0f * PI * DSP_SELFTEST_TONE_HZ / DSP_SELFTEST_FS_HZ;
     for (uint32_t i = 0U; i < DSP_SELFTEST_LEN; i++) {
         s_selftest_in[i] = arm_sin_f32(two_pi_f0_over_fs * (float32_t)i);
     }
@@ -202,7 +202,7 @@ void DSP_Filter_SelfTest(UART_HandleTypeDef *huart)
 
     // 1) 生成 1 kHz 正弦（与 FFT 自测同源）
     const float32_t two_pi_f0_over_fs =
-        2.0f * 3.14159265358979323846f * DSP_SELFTEST_TONE_HZ / DSP_SELFTEST_FS_HZ;
+        2.0f * PI * DSP_SELFTEST_TONE_HZ / DSP_SELFTEST_FS_HZ;
     for (uint32_t i = 0U; i < DSP_FLT_SELFTEST_LEN; i++) {
         s_flt_in[i] = arm_sin_f32(two_pi_f0_over_fs * (float32_t)i);
     }

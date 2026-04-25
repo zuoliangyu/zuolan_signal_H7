@@ -224,18 +224,17 @@ void dsp_pipeline_proc(void)
         return;
     }
 
-    static float32_t s_blk_in[PL_BLOCK_SAMPLES];
-    static float32_t s_blk_filtered[PL_BLOCK_SAMPLES];
+    static float32_t s_blk[PL_BLOCK_SAMPLES];
     adc_app_block_t  adc_block;
 
     while (ADC_APP_PopBlock(&adc_block) != 0U) {
-        pipeline_convert_block(adc_block.samples, s_blk_in);
-        pipeline_apply_filter(s_blk_in, s_blk_filtered);
+        pipeline_convert_block(adc_block.samples, s_blk);
+        pipeline_apply_filter(s_blk, s_blk);
 
         // 追加到累积器，不超过 fft_size
         const uint32_t need = (uint32_t)s_pl.fft_size - s_pl.acc_count;
         const uint32_t copy = (PL_BLOCK_SAMPLES < need) ? PL_BLOCK_SAMPLES : need;
-        (void)memcpy(&s_acc_buf[s_pl.acc_count], s_blk_filtered,
+        (void)memcpy(&s_acc_buf[s_pl.acc_count], s_blk,
                      copy * sizeof(float32_t));
         s_pl.acc_count += (uint16_t)copy;
 

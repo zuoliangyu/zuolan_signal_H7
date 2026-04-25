@@ -15,7 +15,7 @@
                 "-c",
                 "adapter speed 4000",
                 "-c",
-                "program ${workspaceFolder}/build/Debug/zuolan_signal_STM32.elf verify reset exit"
+                "program ${workspaceFolder}/build/Debug/zuolan_signal_STM32_H7.elf verify reset exit"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"
@@ -41,7 +41,7 @@
                 "-c",
                 "adapter speed 1000",
                 "-c",
-                "program ${workspaceFolder}/build/Debug/zuolan_signal_STM32.elf verify reset exit"
+                "program ${workspaceFolder}/build/Debug/zuolan_signal_STM32_H7.elf verify reset exit"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"
