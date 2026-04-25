@@ -1,6 +1,6 @@
 # zuolan_signal_H7
 
-基于 `STM32H743VGTx` 的信号处理学习与工程实验仓库。
+基于 `STM32H743ZITx`（LQFP144 / 2 MB Flash）的信号处理学习与工程实验仓库。
 
 ## 仓库结构
 
@@ -16,14 +16,15 @@
     ├── Drivers/                    — STM32 HAL + CMSIS-Core + CMSIS-DSP V1.10
     ├── Middlewares/                — 由 CubeMX 维护
     ├── cmake/ + CMakeLists.txt     — CMake + ARM GCC 构建链
-    ├── STM32H743XG_FLASH.ld
+    ├── STM32H743XX_FLASH.ld
     ├── startup_stm32h743xx.s
-    └── zuolan_signal_STM32.ioc     — CubeMX 配置源文件
+    └── zuolan_signal_STM32_H7.ioc  — CubeMX 配置源文件
 ```
 
-## 当前能力（commit `107b525`）
+## 当前能力
 
-- **MCU**：STM32H743VGTx，HCLK 240 MHz，I-Cache 启用
+- **MCU**：STM32H743ZITx（LQFP144 / 2 MB Flash / 1 MB SRAM），CPU 480 MHz / HCLK 240 MHz，I-Cache 启用
+- **板载 LED**：PG7（低有效）
 - **采样链路**：ADC1/PA0 16-bit @ 256 kHz 由 TIM2 触发，DMA 双半缓冲
 - **波形输出**：DAC1/PA4，TIM6 触发，DMA 循环波表，支持 dc / sine / triangle / square
 - **信号处理**：CMSIS-DSP V1.10，FFT (256/512/1024) + FIR + IIR Biquad DF2T
@@ -42,8 +43,9 @@
 | ADC 与 DAC | [docs/ADC与DAC/README.md](docs/ADC与DAC/README.md) |
 | OpenOCD 烧录调试 | [docs/OpenOCD_CMSIS-DAP_烧录与调试.md](docs/OpenOCD_CMSIS-DAP_烧录与调试.md) |
 | 历史踩坑 | [docs/纠错/README.md](docs/纠错/README.md) |
+| 切换 MCU / 换板 | [docs/STM32H7_MCU迁移与CubeMX重生成避坑指南.md](docs/STM32H7_MCU迁移与CubeMX重生成避坑指南.md) |
 | 工程主源码 | [zuolan_signal_STM32_H7/App/](zuolan_signal_STM32_H7/App/) |
-| CubeMX 配置 | [zuolan_signal_STM32_H7/zuolan_signal_STM32.ioc](zuolan_signal_STM32_H7/zuolan_signal_STM32.ioc) |
+| CubeMX 配置 | [zuolan_signal_STM32_H7/zuolan_signal_STM32_H7.ioc](zuolan_signal_STM32_H7/zuolan_signal_STM32_H7.ioc) |
 
 ## 构建
 
@@ -61,7 +63,7 @@ cmake --build build/Debug     # build
 
 - 仓库名：`zuolan_signal_H7`
 - 工程目录：`zuolan_signal_STM32_H7/`
-- CMake 项目名 / 编译产物：`zuolan_signal_STM32`（保留早期命名，未跟随仓库重命名以避免改动 `.vscode/` 等多处引用）
+- CMake 项目名 / 编译产物 / `.ioc` 文件名：统一为 `zuolan_signal_STM32_H7`（commit `9f1a757` 起对齐工程目录名，避免 STM32 Build Analyzer 等插件按目录名找 map 文件失败）
 
 ## 维护约定
 
