@@ -4,7 +4,7 @@
 
 如果你更关心串口底层接收链路，而不是命令层，请先看：
 
-- [UART接收调试与CLI运行说明.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/串口与CLI/UART接收调试与CLI运行说明.md)
+- [UART接收调试与CLI运行说明.md](UART接收调试与CLI运行说明.md)
 
 ## 1. 当前模块位置
 

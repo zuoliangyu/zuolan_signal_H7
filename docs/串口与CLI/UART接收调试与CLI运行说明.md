@@ -116,8 +116,8 @@ USART RX
 
 如果你想专门理解这部分，可继续看：
 
-- [STM32H7_DMA缓冲区与链接脚本说明.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/STM32H7_DMA缓冲区与链接脚本说明.md)
-- [纠错-STM32H743串口DMA接收无回显.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/纠错-STM32H743串口DMA接收无回显.md)
+- [STM32H7_DMA缓冲区与链接脚本说明.md](../STM32H7_DMA缓冲区与链接脚本说明.md)
+- [STM32H743串口DMA接收无回显.md](../纠错/STM32H743串口DMA接收无回显.md)
 
 ## 5. 当前运行行为
 
@@ -231,7 +231,7 @@ LED 的逻辑重点如下：
 
 与该部分相关的问题记录可见：
 
-- [纠错-LED命令状态被自动闪烁覆盖.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/纠错-LED命令状态被自动闪烁覆盖.md)
+- [LED命令状态被自动闪烁覆盖.md](../纠错/LED命令状态被自动闪烁覆盖.md)
 
 ## 8. 当前限制
 

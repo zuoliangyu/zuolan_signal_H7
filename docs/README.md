@@ -1,93 +1,83 @@
 # 工程文档总索引
 
-本文档用于统一导航当前工程 `docs/` 下的正式说明、专题文档、学习路线和纠错记录。
+本目录用于统一导航工程的设计说明、专题文档、学习路线和纠错记录。
 
-如果你是第一次看这个仓库，建议先按下面顺序阅读：
+> 所有链接均为相对路径，可在 GitHub / 本地 / VS Code 中正常跳转。
 
-1. 工程搭建与调试
-2. 串口与 CLI
-3. ADC 与 DAC
-4. `STM32H7` 的 `DMA / Cache / MPU`
-5. 进阶学习路线
+## 1. 文档结构
 
-## 1. 当前文档结构
+```
+docs/
+├── ADC与DAC/                       — ADC1/TIM2 周期采集、DAC1/TIM6 波形输出
+├── CubeMX_CORTEX_M7_详解/          — Cortex-M7 配置页系统理解与 CubeMX 操作
+├── DSP/                            — CMSIS-DSP 集成、FFT/滤波、实时流水线
+├── STM32H743_信号处理学习路线/      — 阶段化学习路径
+├── 串口与CLI/                       — USART/CLI/DMA 收发架构
+├── 纠错/                           — 历史踩坑记录
+├── OpenOCD_CMSIS-DAP_烧录与调试.md
+├── STM32H7_DMA缓冲区与链接脚本说明.md
+└── 基于uwTick的简易调度器说明.md
+```
 
-### 专题目录
+## 2. 各专题入口
 
-- [串口与CLI/README.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/串口与CLI/README.md)
-  - 当前 `USART1/USART2`、`DMA + IDLE + RingBuffer`、CLI 解析与命令扩展
-- [ADC与DAC/README.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/ADC与DAC/README.md)
-  - 当前 `ADC1/TIM2/DMA` 周期采集、`DAC1/TIM6/DMA` 波形输出、默认对齐关系
-- [CubeMX_CORTEX_M7_详解/README.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/CubeMX_CORTEX_M7_详解/README.md)
-  - `CubeMX -> CORTEX_M7` 配置页的系统理解、启用顺序和常见误区
-- [STM32H743_信号处理学习路线/README.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/STM32H743_信号处理学习路线/README.md)
-  - 围绕 `STM32H743` 信号采集、算法、实时处理的阶段化学习路径
-- [DSP/README.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/DSP/README.md)
-  - `App/dsp` 模块、CMSIS-DSP 集成、FFT、FIR/IIR 系数从 MATLAB 导入流程
+- [ADC与DAC/README.md](ADC与DAC/README.md) —— ADC1/TIM2/DMA 周期采集，DAC1/TIM6/DMA 波形输出
+- [DSP/README.md](DSP/README.md) —— `App/dsp` 模块、CMSIS-DSP V1.10、FFT、FIR/IIR、ADC→滤波→FFT 实时流水线
+- [串口与CLI/README.md](串口与CLI/README.md) —— USART 接收 DMA 链路、CLI 解析与扩展、UART 异步发送（DMA TX 环形缓冲）
+- [CubeMX_CORTEX_M7_详解/README.md](CubeMX_CORTEX_M7_详解/README.md) —— Cortex-M7 配置页系统讲解与 CubeMX 操作建议
+- [STM32H743_信号处理学习路线/README.md](STM32H743_信号处理学习路线/README.md) —— 围绕 H743 的信号采集、算法、实时处理阶段化学习路径
+- [纠错/README.md](纠错/README.md) —— 集中存放工程历史踩坑记录
 
-### 根目录通用文档
+## 3. 根目录通用文档
 
-- [OpenOCD_CMSIS-DAP_烧录与调试.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/OpenOCD_CMSIS-DAP_烧录与调试.md)
-  - VS Code 下 `OpenOCD + CMSIS-DAP` 烧录与调试配置说明
-- [STM32H7_DMA缓冲区与链接脚本说明.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/STM32H7_DMA缓冲区与链接脚本说明.md)
-  - `STM32H7` 上 DMA 缓冲区、链接脚本、自定义 section 的核心说明
-- [基于uwTick的简易调度器说明.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/基于uwTick的简易调度器说明.md)
-  - 当前轻量调度器的设计与使用方式
-- [纠错文档模板.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/纠错文档模板.md)
-  - 后续新增问题记录时统一使用的模板
-- [纠错索引.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/纠错索引.md)
-  - 当前所有纠错文档的集中入口
+- [OpenOCD_CMSIS-DAP_烧录与调试.md](OpenOCD_CMSIS-DAP_烧录与调试.md) —— VS Code + OpenOCD + CMSIS-DAP 烧录调试配置
+- [STM32H7_DMA缓冲区与链接脚本说明.md](STM32H7_DMA缓冲区与链接脚本说明.md) —— H7 上 DMA 缓冲区放置、`.dma_buffer` 段、链接脚本设计
+- [基于uwTick的简易调度器说明.md](基于uwTick的简易调度器说明.md) —— 当前轻量调度器的设计与使用
 
-## 2. 按任务阅读
+## 4. 按任务找文档
 
-### 如果你要做串口、CLI、调试输出
+### 串口、CLI、调试输出
 
-建议阅读：
+1. [串口与CLI/UART接收调试与CLI运行说明.md](串口与CLI/UART接收调试与CLI运行说明.md)
+2. [串口与CLI/CLI命令解析与扩展说明.md](串口与CLI/CLI命令解析与扩展说明.md)
+3. [串口与CLI/UART异步发送与DMA架构.md](串口与CLI/UART异步发送与DMA架构.md)
 
-1. [串口与CLI/README.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/串口与CLI/README.md)
-2. [串口与CLI/UART接收调试与CLI运行说明.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/串口与CLI/UART接收调试与CLI运行说明.md)
-3. [串口与CLI/CLI命令解析与扩展说明.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/串口与CLI/CLI命令解析与扩展说明.md)
+### ADC / DAC / 周期信号采集
 
-### 如果你要做 ADC / DAC / 周期信号采集
+1. [ADC与DAC/ADC设计与实现说明.md](ADC与DAC/ADC设计与实现说明.md)
+2. [ADC与DAC/DAC设计与实现说明.md](ADC与DAC/DAC设计与实现说明.md)
+3. [STM32H7_DMA缓冲区与链接脚本说明.md](STM32H7_DMA缓冲区与链接脚本说明.md)
 
-建议阅读：
+### DSP / FFT / 滤波
 
-1. [ADC与DAC/README.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/ADC与DAC/README.md)
-2. [ADC与DAC/ADC设计与实现说明.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/ADC与DAC/ADC设计与实现说明.md)
-3. [ADC与DAC/DAC设计与实现说明.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/ADC与DAC/DAC设计与实现说明.md)
-4. [STM32H7_DMA缓冲区与链接脚本说明.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/STM32H7_DMA缓冲区与链接脚本说明.md)
+1. [DSP/MATLAB滤波器设计与导出.md](DSP/MATLAB滤波器设计与导出.md)
+2. [DSP/实时流水线设计.md](DSP/实时流水线设计.md)
+3. [STM32H743_信号处理学习路线/04_阶段四_CMSIS_DSP与常用算法.md](STM32H743_信号处理学习路线/04_阶段四_CMSIS_DSP与常用算法.md)
 
-### 如果你要理解 H7 上的 Cache / MPU / DMA
+### Cache / MPU / DMA / 内存布局
 
-建议阅读：
+1. [CubeMX_CORTEX_M7_详解/00_配置页快速结论与当前工程建议.md](CubeMX_CORTEX_M7_详解/00_配置页快速结论与当前工程建议.md)
+2. [STM32H743_信号处理学习路线/03_阶段三_内存_Cache_DMA_MPU.md](STM32H743_信号处理学习路线/03_阶段三_内存_Cache_DMA_MPU.md)
+3. [STM32H7_DMA缓冲区与链接脚本说明.md](STM32H7_DMA缓冲区与链接脚本说明.md)
 
-1. [CubeMX_CORTEX_M7_详解/README.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/CubeMX_CORTEX_M7_详解/README.md)
-2. [CubeMX_CORTEX_M7_详解/00_配置页快速结论与当前工程建议.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/CubeMX_CORTEX_M7_详解/00_配置页快速结论与当前工程建议.md)
-3. [STM32H743_信号处理学习路线/03_阶段三_内存_Cache_DMA_MPU.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/STM32H743_信号处理学习路线/03_阶段三_内存_Cache_DMA_MPU.md)
+### 历史踩坑
 
-### 如果你要看历史问题和踩坑记录
+进入 [纠错/README.md](纠错/README.md) 看分类索引。
 
-建议阅读：
+## 5. 当前工程状态（截至 commit `bd3f573`）
 
-1. [纠错索引.md](C:/Users/zuolan/Desktop/zuolan_signal_STM32/docs/纠错索引.md)
-2. 再按问题主题跳转到具体纠错文档
+- 通讯：`USART1` 921600 baud（CLI，DMA TX 异步发送 + DMA RX）；`USART2` 原样回显
+- CLI 命令：`help / echo / led / dac / adc / fft / filter / pipeline / dacrate / adcrate / adcdump / uarttx / report / clearstats`
+- DAC：`DAC1_CH1 → PA4`，`TIM6 + DMA` 波形输出（dc / sine / triangle / square）
+- ADC：`ADC1 → PA0`，16-bit，`TIM2` 触发周期采样 256 kHz，`SamplingTime = 8.5 cycles`
+- DSP：`CMSIS-DSP V1.10` 集成完成，FFT (256/512/1024) + FIR + Biquad DF2T
+- 流水线：`ADC → optional filter → FFT` 实时管线，单帧 / 流式触发，可降频输出
+- DMA 缓冲区：统一通过 `.dma_buffer` 段放到 `RAM_D2`
 
-## 3. 当前工程重点状态
+## 6. 维护约定
 
-截至当前版本，文档反映的工程状态如下：
-
-- `USART1` 为 CLI，`USART2` 为 echo
-- CLI 已支持 `led / dac / adc` 三类主要命令
-- `DAC1_CH1 -> PA4` 已支持 `TIM6 + DMA` 规则波形输出
-- `ADC1 -> PA0` 已支持 `TIM2` 触发的周期采样
-- 默认按 `DAC 1kHz + 256点` 对齐 `ADC 256kHz + 256点`
-- `STM32H7` 上 DMA 缓冲区统一按 `.dma_buffer` + `RAM_D2` 思路管理
-
-## 4. 维护约定
-
-后续维护 `docs/` 时，默认遵循：
-
-- 专题说明优先收敛到专题目录
-- 纠错记录统一保留在根目录 `纠错-*.md`
-- 如果主题已经有目录，优先更新目录内 `README.md`
-- 避免同主题在根目录和专题目录各写一份长期重复内容
+- 专题说明优先收敛到对应专题目录，不要在根目录散写
+- 历史问题记录写到 `docs/纠错/` 下，文件名仅保留主题（不再加 `纠错-` 前缀，因为目录名已表明分类）
+- 新增专题主题且文件 ≥ 2 个时，再单独建子目录
+- 同主题已有目录的，优先更新 README，避免根目录与子目录重复
+- README 索引中的链接**统一用相对路径**，绝对路径会跨机器失效
