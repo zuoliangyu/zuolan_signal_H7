@@ -230,6 +230,17 @@ SECTIONS
   PROVIDE( __bss_start = __tbss_start );
   PROVIDE( __bss_size = __bss_end - __bss_start );
 
+  /* DMA buffers must live in DMA-accessible RAM (D2 SRAM at 0x30000000),
+     not DTCM, since GPDMA1 cannot reach DTCM. App code marks buffers with
+     __attribute__((section(".dma_buffer"))). 32-byte aligned for cache lines. */
+  .dma_buffer (NOLOAD) :
+  {
+    . = ALIGN(32);
+    *(.dma_buffer)
+    *(.dma_buffer*)
+    . = ALIGN(32);
+  } >RAM_D2
+
   /* User_heap_stack section, used to check that there is enough RAM left */
   ._user_heap_stack (NOLOAD) :
   {
