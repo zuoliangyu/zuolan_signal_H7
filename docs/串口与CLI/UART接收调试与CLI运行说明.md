@@ -6,16 +6,17 @@
 
 当前工程启用了两路异步串口：
 
-- `USART1`
+- `USART1`（CLI / 数据口）
   - `TX = PA9`
   - `RX = PA10`
-  - `115200 8N1`
+  - `921600 8N1`（已从 115200 提速以容纳 pipeline / fftdump 的高频输出）
   - `RX DMA = DMA1_Stream0`
-  - `DMA Request = DMA_REQUEST_USART1_RX`
-- `USART2`
+  - `TX DMA = DMA1_Stream2`（异步发送，详见 `UART异步发送与DMA架构.md`）
+  - `DMA Request = DMA_REQUEST_USART1_RX / DMA_REQUEST_USART1_TX`
+- `USART2`（保底回显口）
   - `TX = PA2`
   - `RX = PA3`
-  - `115200 8N1`
+  - `115200 8N1`（仍保持低速，仅作底层回显联调用）
   - `RX DMA = DMA1_Stream1`
   - `DMA Request = DMA_REQUEST_USART2_RX`
 
@@ -141,15 +142,17 @@ USART RX
 
 ### 5.1 启动状态打印
 
-当前启动时 `USART1` 会输出类似下面的内容：
+当前启动时 `USART1` 会输出类似下面的内容（精确字段以代码为准，这里只示意结构）：
 
 ```text
 System boot summary
-USART1: mode=cli, rx_dma=ready, dma_buf=256, ring_buf=1024
-USART2: mode=echo, rx_dma=ready, dma_buf=256, ring_buf=1024
-LED0: state=0, blink=1, interval_ms=500, active_level=low
-DAC1_CH1: state=running, mode=dc, amp_mv=500, offset_mv=1650, freq_hz=1000, duty_percent=50, raw=2048
-Commands: help, echo, led, dac
+USART1: mode=cli, baud=921600, rx_dma=ready, tx_dma=ready, ring_buf=4096
+USART2: mode=echo, baud=115200, rx_dma=ready, dma_buf=256, ring_buf=1024
+LED0:   pin=PG7, state=0, blink=1, interval_ms=500, active_level=low
+DAC1_CH1: state=running, mode=dc, amp_mv=500, offset_mv=1650, freq_hz=1000, duty=50, raw=2048
+ADC1:   pin=PA0, channel=16, rate_hz=256000, dma_samples=256, block_samples=128
+Commands: help / echo / led / adc / dac / fft / fftdump / filter / pipeline /
+          dacrate / adcrate / adcdump / uarttx / report / clearstats
 
 >
 ```
@@ -270,31 +273,22 @@ LED 的逻辑重点如下：
 1. 把 DMA 缓冲区放到 non-cacheable 区域
 2. 在读 DMA 缓冲区前做 cache invalidate
 
-### 9.3 my_printf
+### 9.3 my_printf 现已走 TX DMA 异步
 
-当前 CLI 和状态打印使用的是阻塞式 `my_printf()`。
+`my_printf()` 已不是阻塞实现，而是把字节推入 USART1 TX 4 KB 环形缓冲后立即返回，由 `HAL_UART_Transmit_DMA` 在 TC 中断里链式发出。
 
-这适合：
+实际影响：
 
-- 少量状态打印
-- 调试日志
+- pipeline / fftdump 这类高频或大块输出不会再卡主循环
+- 输出量超过 ring 容量时会丢字节并累加 `dropped`，可用 `uarttx` CLI 命令查看
+- 启动摘要分多行发送的习惯仍然推荐 —— 单次 `my_printf` 缓冲超 4 KB 仍会被截
 
-但不适合：
-
-- 高频日志
-- 大量实时输出
-
-另外需要注意：
-
-- 不要把过长的多行启动摘要拼成一次 `my_printf()` 输出
-- 更稳妥的方式是按行分多次发送
+详细实现见 `UART异步发送与DMA架构.md`。
 
 ## 10. 后续建议
 
 建议后续扩展顺序如下：
 
-1. 先稳定当前 `USART1=CLI`、`USART2=echo` 结构
-2. 在 `App/uart` 之上补充更清晰的读接口
-3. 在 CLI 之外继续拆协议层
-4. 如日志量增大，再考虑 `TX DMA`
-5. 如启用 `D-Cache`，同步处理缓存一致性
+1. 在 `App/uart` 之上补充更清晰的读接口（目前直接喂 CLI）
+2. 在 CLI 之外继续拆协议层（例如二进制 frame，方便 fftdump 之外的批量数据上传）
+3. 如启用 `D-Cache`，同步处理缓存一致性

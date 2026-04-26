@@ -177,53 +177,22 @@ led help
 
 ```text
 dac get
-dac mode dc
-dac mode sine
+dac mode <dc|sine|tri|square>
 dac mode ?
-dac amp 500
+dac amp <mv>
 dac amp ?
-dac offset 1650
+dac offset <mv>
 dac offset ?
-dac freq 1000
+dac freq <hz>
 dac freq ?
-dac duty 50
+dac duty <0..100>
 dac duty ?
-dac help
 dac start
 dac stop
+dac test          # 一键预设：1V amp / 1.65V offset / 1 kHz sine + start
+                  #（pipeline window test / pipeline selftest 的标准信号源）
+dac help
 ```
-
-行为说明：
-
-- `dac get`
-  - 输出当前完整状态和全部参数
-- `dac mode <dc|sine|tri|square>`
-  - 设置当前输出模式
-  - 不会修改其他参数
-- `dac mode ?`
-  - 查询当前模式
-- `dac amp <mv>`
-  - 设置当前振幅
-- `dac amp ?`
-  - 查询当前振幅
-- `dac offset <mv>`
-  - 设置当前偏置
-- `dac offset ?`
-  - 查询当前偏置
-- `dac freq <hz>`
-  - 设置当前频率
-- `dac freq ?`
-  - 查询当前频率
-- `dac duty <0..100>`
-  - 设置当前方波占空比百分比
-- `dac duty ?`
-  - 查询当前方波占空比百分比
-- `dac help`
-  - 输出 DAC 子命令说明和参数说明
-- `dac start`
-  - 按当前保存参数重新启动 DAC 输出
-- `dac stop`
-  - 停止当前 DAC 输出，但保留参数
 
 注意：
 
@@ -235,6 +204,64 @@ dac stop
 - `dac duty` 允许范围为 `0..100`
 - 当前波形输出固定使用 `128` 点波表
 - 建议查询命令统一写成 `dac mode ?` 这种空格分隔形式
+
+### 5.5 adc
+
+读取或控制 ADC1 当前状态、单次取样、连续监视和块流。
+
+```text
+adc get                 # 完整状态
+adc raw                 # 一次原始样本
+adc mv                  # 一次毫伏值
+adc avg <N>             # N 次取样的平均（去毛刺）
+adc rate                # 显示 / 设置软件输出节流（不是真实采样率）
+adc rate <ms>
+adc frame               # 一次性 dump latest_frame（DMA 双缓冲快照）
+adc stream on|off       # 周期推送 raw,mv 到串口
+adc block on|off        # 推送 ADC_APP_PopBlock 取出的 128 点块（实时性能压力测试用）
+```
+
+详见 `docs/ADC与DAC/ADC设计与实现说明.md`。
+
+### 5.6 fft / filter
+
+CMSIS-DSP 算法层自检，与硬件无关：
+
+```text
+fft selftest            # FFT 256/512/1024 三档自测，对照已知正弦输出 PASS/FAIL
+filter selftest         # FIR / Biquad 自测
+```
+
+### 5.7 pipeline
+
+ADC → 滤波 → 加窗 → FFT 实时链路，详见 `docs/DSP/实时流水线设计.md §6`。
+
+```text
+pipeline status
+pipeline filter <name>|?
+pipeline window <name>|?|test
+pipeline fft <256|512|1024>|?
+pipeline dc on|off|?
+pipeline rate <1..1000>|?
+pipeline run
+pipeline stream on|off
+pipeline selftest        # 端到端硬件回环（自驱 DAC，需 PA4↔PA0 跳线）
+```
+
+### 5.8 fftdump
+
+触发一次 oneshot，把整段 magnitude 谱以 CSV 推到串口（fft=1024 时 ~12 KB），CLI 内自带反压。详见 `docs/DSP/FFT加窗与系数模板.md §5`。
+
+### 5.9 性能 / 健康统计
+
+```text
+adcrate                  # 1 秒内统计 ADC 实际采样率（验证 TIM2 触发是否符合预期）
+dacrate                  # 1 秒内统计 DAC 实际更新率
+adcdump                  # dump TIM2 寄存器现状（采样无数据时排查触发链）
+uarttx                   # USART1 TX 异步环形缓冲统计：bytes_pushed / bytes_sent / dropped / max_used
+report                   # 暂停 pipeline → 一次性输出全部健康指标（ADC/DAC/UART/Pipeline）
+clearstats               # 复位 ADC 事件/丢块计数和 DAC DMA 计数
+```
 
 ## 6. 启动时 CLI 的表现
 
@@ -287,15 +314,16 @@ static void CLI_CmdFoo(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
 
 在串口基础链路还处于持续完善阶段时，这种分工更稳。
 
-### 8.2 为什么继续使用阻塞输出
+### 8.2 输出已迁到 TX DMA 异步
 
-当前 CLI 输出使用阻塞式 `HAL_UART_Transmit()` 或 `my_printf()`。
+CLI 输出（含 `my_printf` 全部调用）已经走 USART1 TX DMA 异步链路：
 
-原因是：
+- 调用方把字节推进 4 KB 环形缓冲后立即返回，不再阻塞等 TC
+- `HAL_UART_Transmit_DMA` 在 TC 中断里自动启下一段，直到环形缓冲清空
+- 满了就丢字节并累加 `dropped`，可用 `uarttx` 命令查看
+- `fftdump` 这类一次性大量输出在 CLI handler 里自带反压（每 8 行检查 ring 至少 256 字节空闲）
 
-- CLI 输出频率不高
-- 当前重点是逻辑清晰和稳定
-- 暂时不需要为了 CLI 再做一套 TX DMA 日志系统
+详见 `UART异步发送与DMA架构.md`。
 
 ### 8.3 为什么 LED 行为由 LED 模块管理
 
@@ -310,7 +338,6 @@ static void CLI_CmdFoo(UART_HandleTypeDef *huart, uint8_t argc, char *argv[])
 
 如果后面 CLI 继续扩展，建议优先考虑：
 
-1. 给命令增加模块级分组
-2. 增加更清晰的参数校验工具
+1. 给命令增加模块级分组（目前 14 条命令已平铺，看 `help` 输出有点拥挤）
+2. 增加更清晰的参数校验工具（每个 handler 自己 strtol + 范围判断，重复较多）
 3. 如果需要双串口 CLI，再改为多实例上下文
-4. 如果输出量增大，再考虑把 CLI 输出迁到 TX DMA

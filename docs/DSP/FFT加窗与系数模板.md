@@ -95,26 +95,46 @@ pipeline status                # 输出里包含 window=<name> cgain=<f>
 ### `pipeline selftest` 端到端硬件回环
 
 `pipeline window test` 只验证窗一致性，假设 DAC 已经在出已知信号。
-`pipeline selftest` 自己驱动 DAC，把整条链路作为黑盒验证：
+`pipeline selftest` 自己驱动 DAC，把整条链路作为黑盒验证。它实际上是
+**`window test` 的超集**：`window test` 只跑 4 窗对比，
+`selftest` 在外面包了一层「自驱 DAC + 还原现场」。
 
-1. 保存当前 DAC 状态
+执行步骤（详见 `dsp_pipeline.c::DSP_Pipeline_SelfTest`）：
+
+1. 保存 DAC 现场（mode / amp / offset / freq / started）和 window 现场
 2. 强制配置 sine 1 kHz / 1V amp / 1.65V offset 并启动
-3. 切窗到 hann，warmup 2 帧
-4. 跑一次 oneshot，验证：
-   - `peak_bin` 在期望 bin（fs/fft 算）±2 内
-   - `peak_amp` 在理论幅度（`A_raw × N / 2`，A_raw = 1000mV/3300mV × 65535）的 0.7~1.3 之间
-5. 不论结果如何，还原 DAC 现场和 window 现场
+3. 切窗到 `none`，warmup 2 帧（让 DAC 输出和 ADC DMA 队列稳定，否则首帧幅度只有正常值的一半）
+4. 依次跑 `none / hann / hamming / blackman` 各 1 次同步 oneshot
+5. 还原 DAC 与 window 现场（不论后续 PASS/FAIL）
+6. 算期望值并打印对比表 + verdict
 
-输出示例：
+判定逻辑（**三条全过才算 PASS**）：
+
+- 每个窗 `peak_bin` 在 expected ± 2（expected = `1000 / (fs/fft)` 四舍五入）
+- 每个窗 `peak_amp` 在 expected_amp 的 `0.7 ~ 1.3` 之间
+  （expected_amp = `A_raw × N / 2`，`A_raw = 1000mV / 3300mV × 65535`）
+- 加窗的 amp 与 `none` baseline 偏差 < 15%
+
+输出格式（与 `pipeline window test` 一致，多了「expected 期望值」一行）：
 
 ```
-[PL-SELFTEST] DAC sine 1 kHz / 1000 mV / offset 1650 mV; window=hann fft=1024
-[PL-SELFTEST] result: peak_bin=4 expect=4 (dev=0) peak_freq=999.46 Hz
-[PL-SELFTEST] amp=10150642 expect=10172307 (ratio=0.998)
-[PL-SELFTEST] PASS
+[PL-SELFTEST] DAC sine 1 kHz / 1000 mV / offset 1650 mV; fft=1024; warmup 2 frames
+[PL-SELFTEST] expected: peak_bin=4 (1000 Hz / 249.866 Hz/bin) amp=19858
+
+  window     cgain  peak_bin  peak_freq      mag           amp           amp/none
+  ---------  -----  --------  -------------  ------------  ------------  --------
+  none       1.000         4    999.46 Hz       19850            19850     1.000
+  hann       0.500         4    999.46 Hz        9920            19840     1.000
+  hamming    0.540         4    999.46 Hz       10720            19852     1.000
+  blackman   0.420         4    999.46 Hz        8340            19857     1.000
+  verdict: PASS  (peak_bin within +/-2 of 4, amp within +/-30% of expected, cross-window within +/-15%)
 ```
 
-前提同样是 PA4↔PA0 跳线。
+失败时最后一行会替换为 `verdict: FAIL  (<reason>)`，常见 reason：
+`peak_bin shifted from expected` / `amp deviates from expected (>30%)` /
+`amp inconsistent across windows (>15%)`。
+
+前提同样是 PA4↔PA0 跳线，且 ADC 已启动（否则直接打印 `FAIL: ADC not running`）。
 
 ## 5. `fftdump`：整谱 CSV 导出
 
@@ -158,7 +178,7 @@ data = list(csv.reader(lines))[1:]   # 去掉表头 bin,freq_hz,mag
 
 `mag` 是 RFFT 后的原始 magnitude（受窗增益影响），`amp` 是 `mag / cgain`，对单频信号近似回到原幅度。
 
-## 5. 用 MATLAB 出 Kaiser 系数（替换占位模板的步骤）
+## 6. 用 MATLAB 出 Kaiser 系数（替换占位模板的步骤）
 
 ```matlab
 N    = 1024;
@@ -171,7 +191,7 @@ sprintf('%.10ff,', w)   % 一次性导出 C 数组初始化串
 
 > 不替换也能编、能跑 —— 占位是全 1，等同于矩形窗，`pipeline window kaiser` 时 `cgain=1.0`。这是为了让模板在没系数前不破坏 pipeline。
 
-## 6. 自定义窗的扩展方式
+## 7. 自定义窗的扩展方式
 
 如果想加 Chebyshev / Flat-top / 任意自定义窗，按 `dsp_filters_template_*` 同款套路：
 
@@ -182,7 +202,7 @@ sprintf('%.10ff,', w)   % 一次性导出 C 数组初始化串
    - 加常量数组定义（含 MATLAB 注释）
 3. 不需要动 `dsp_pipeline` —— 它只通过 `Generate` + `Name` + `FromName` 三个 API 调用窗模块
 
-## 7. 注意点
+## 8. 注意点
 
 - **窗长度必须等于 FFT 长度**。当前实现里 fft 是 256/512/1024 三档；公式型窗每档都能现算，模板型窗（Kaiser）只对应一档。
 - **加窗放在精去 DC 之后**。因为窗函数边沿压低了样本数值，先去 DC 再加窗能避免在窗"锥形"位置残留 DC 能量被搬运到低频 bin。
